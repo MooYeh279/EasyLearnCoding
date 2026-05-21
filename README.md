@@ -116,11 +116,28 @@ learn-code --reload
 ### 3. 开始学习
 
 1. 在首页选择编程语言卡片进入课程
+
+    ![](assets/pl.jpg)
+
 2. 输入学习主题（如 `asyncio`、`指针`、`模板`）
+
+    ![](assets/topics.jpg)
+
 3. AI 生成结构化学习大纲，你可以调整章节顺序
-4. 确认后 AI 逐章生成课程内容（概念讲解 + 示例代码 + 练习题）
+
+    ![](assets/outline.jpg)
+
+4. 确认后 AI 逐章生成课程内容（概念讲解 + 示例代码；待扩展练习题）
+
+    ![](assets/gen_lesson.jpg)
+
 5. 课程中的代码块可以 **在线运行**，即时查看输出
+
+    ![](assets/codes.jpg)
+
 6. 遇到问题随时使用右侧 **AI 助手** 提问
+
+    ![](assets/bot.jpg)
 
 ### 4. 课程管理
 
