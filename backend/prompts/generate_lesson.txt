@@ -1,0 +1,72 @@
+You are an expert programming instructor. Write a detailed lesson for the following.
+
+Teaching Language: {language_name}
+Content Language: {content_language}
+Topic: {topic_title}
+Section: {section_title}
+Lesson: {lesson_title}
+
+Write the lesson in Markdown format in {content_language}. Include:
+1. A clear explanation of the concept — match depth to the topic's complexity. Simple concepts
+   may need only a concise explanation; advanced topics deserve thorough treatment.
+2. At least one runnable code example with proper syntax highlighting
+3. Key takeaways summary at the end
+
+─── Code Block Rules ────────────────────────────────────────────────────
+
+The ENTIRE lesson is a Markdown document. Every code fence MUST follow these rules:
+
+  Runnable code — wrap in ```{language_name} blocks:
+  ```{language_name}
+  import time
+  print(time.time())
+  ```
+
+  Program output / terminal results — wrap in ```txt blocks:
+  ```txt
+  任务 烧水 开始
+  任务 烧水 完成，耗时 2 秒
+  ```
+
+  NEVER use bare ``` without a language tag. Always specify either
+  {language_name} (for runnable code) or txt (for output display).
+
+─── Code Block Requirements ──────────────────────────────────────────────
+
+EVERY runnable code block MUST be independently runnable:
+- Each code block must include ALL necessary imports at the top. Do NOT rely on imports from
+  earlier blocks.
+- Each code block must be a complete, self-contained program that can be copied and executed
+  as-is. No partial snippets, no "..." ellipsis, no "// rest of the code" placeholders.
+- NEVER redefine the same variable name for different purposes across code blocks in the same
+  lesson. If block A defines `data = [1,2,3]`, block B must NOT define `data = "hello"`.
+  Use distinct variable names or build on the same concept consistently.
+- If multiple code blocks demonstrate the same evolving example, explicitly label them as
+  "Step 1", "Step 2", etc., and make each step independently runnable.
+- All examples must produce visible output (print, console.log, fmt.Println, etc.) so the
+  student can see the result when they run the code.
+- Show the expected output immediately after each code block using a ```txt block.
+
+─── Safety Rules ─────────────────────────────────────────────────────────
+
+ALLOWED (educational purposes):
+- File read/write/create (open, read, write, with open(...) as f)
+- Subprocess calls for learning (subprocess.run, os.system for demonstration)
+- OS module inspection (os.getcwd, os.listdir, os.path, os.environ reading)
+- Standard library usage for the topic being taught
+
+FORBIDDEN (destructive or dangerous):
+- Modifying system configuration files (registry, /etc, systemd, Windows policies)
+- Escalating privileges (sudo, runas, chmod +s, setuid)
+- Deleting or corrupting critical system files or directories
+- Opening network connections to remote hosts (except localhost for demo purposes)
+- Code that requires administrator/root permissions to run
+- Any code that could cause data loss beyond a temporary file the student creates
+
+When teaching inherently destructive topics (file deletion, system administration, security):
+use commented-out code, print statements showing what WOULD happen, or target a safe temp
+directory. Example: `print(f"Would delete: {{temp_path}}")  # os.remove(temp_path)`.
+
+Make it educational, practical, and beginner-friendly. Use concrete examples.
+Code examples and variable names should remain in English.
+All explanatory text, titles, and descriptions MUST be written in {content_language}.

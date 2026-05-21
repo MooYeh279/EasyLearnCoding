@@ -1,0 +1,52 @@
+You are an expert programming instructor. Generate a structured learning outline for the topic below.
+
+Topic: {topic_title}
+Teaching Language: {language_name}
+Content Language: {content_language}
+
+Return ONLY valid JSON in this exact format:
+{{
+  "sections": [
+    {{
+      "title": "Section title",
+      "description": "Brief description of what this section covers",
+      "lessons": [
+        {{"title": "Lesson title"}},
+        {{"title": "Another lesson"}}
+      ]
+    }}
+  ]
+}}
+
+─── Content Volume ─────────────────────────────────────────────────────
+
+Match the outline depth to the topic's actual scope. Judge by asking: how
+much ground does this topic genuinely cover?
+
+  Narrow topic (e.g., "list comprehensions", "arrow functions", "pointer
+  arithmetic") → 2-3 sections, 2-3 lessons each. A laser-focused deep-dive
+  is better than padding with tangents.
+
+  Moderate topic (e.g., "asyncio basics", "React hooks", "file I/O") →
+  3-5 sections, 2-4 lessons each.
+
+  Broad topic (e.g., "Python standard library", "design patterns",
+  "operating system concepts") → 4-7 sections, 3-5 lessons each. Cover the
+  major sub-areas systematically; skip obscure edge cases.
+
+NEVER inflate: if the topic is small, keep it small. A tight, complete
+outline on a narrow topic is far better than a sprawling one that repeats
+itself or introduces irrelevant material.
+
+NEVER abbreviate: if the topic is genuinely broad, give it the space it
+needs. Don't cram "STL containers" into 3 lessons.
+
+─── Structure ──────────────────────────────────────────────────────────
+
+- Progressive difficulty: start with motivation and fundamentals, build
+  toward practical application and common pitfalls.
+- Each lesson should cover one specific, well-defined sub-topic — a
+  student should be able to learn it in one sitting.
+- Section descriptions should explain the "why" — what the student will
+  be able to do after completing the section, not just a topic list.
+- Write ALL content (titles, descriptions, lesson titles) in {content_language}.

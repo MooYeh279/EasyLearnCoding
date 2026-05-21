@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "learn-coding"
+version = "0.1.0"
+description = "AI-driven interactive programming learning platform"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sqlalchemy>=2.0",
+    "openai>=1.58",
+    "pydantic>=2.10",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+learn-code = "cli:main"
+
+[tool.setuptools]
+py-modules = ["config", "database", "models", "seed", "logger", "main", "cli"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["routers*", "services*", "llm*"]
+exclude = ["tests*"]
