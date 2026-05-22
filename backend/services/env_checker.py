@@ -69,12 +69,12 @@ INSTALL_GUIDE: dict[str, dict[str, str]] = {
         "linux": "sudo apt-get install -y bash",
     },
     "gcc": {
-        "win":   'winget install -e --id MinGW.Mingw',
+        "win":   'winget install --id=MartinStorsjo.LLVM-MinGW.MSVCRT -e',
         "mac":   "brew install gcc",
         "linux": "sudo apt-get install -y build-essential",
     },
     "gpp": {
-        "win":   'winget install -e --id MinGW.Mingw',
+        "win":   'winget install --id=MartinStorsjo.LLVM-MinGW.MSVCRT -e',
         "mac":   "brew install gcc",
         "linux": "sudo apt-get install -y g++",
     },

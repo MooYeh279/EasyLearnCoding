@@ -112,7 +112,6 @@ async def generate_outline_async(topic_title: str, language_name: str, previous_
         result = await _provider.chat_completion_async(
             model=get_model(),
             messages=messages,
-            response_format={"type": "json_object"},
             temperature=AI_GENERATION_TEMPERATURE,
         )
         parsed = json.loads(result)
