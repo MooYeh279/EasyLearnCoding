@@ -80,6 +80,7 @@ from routers.code_executor import router as code_executor_router
 from routers.chat import router as chat_router
 from routers.environment import router as environment_router
 from routers.settings import router as settings_router
+from routers.exercises import router as exercises_router
 
 app.include_router(settings_router)
 app.include_router(languages_router)
@@ -90,6 +91,7 @@ app.include_router(lessons_router)
 app.include_router(code_executor_router)
 app.include_router(chat_router)
 app.include_router(environment_router)
+app.include_router(exercises_router)
 
 @app.get("/api/health")
 def health():
