@@ -164,8 +164,12 @@ export default function TopicDetail() {
         if (sec.title === sectionTitle) {
           for (const les of (sec.lessons || [])) {
             if (les.title === lessonTitle) {
-              const hasContent = les.content && les.content.length > 0;
-              const failed = les.content?.startsWith('[Generation failed:');
+              const isEmptyOrError = !les.content
+                || les.content === '[]'
+                || les.content.includes('Generation failed');
+              const hasContent = !isEmptyOrError;
+              const failedIds: number[] = (topic.generation_progress as any)?.failed_lesson_ids || [];
+              const failed = failedIds.includes(les.id) || (!hasContent && !!les.content);
               if (hasContent || failed) {
                 return { status: 'generated', lessonId: les.id, sectionId: sec.id, failed };
               }
@@ -194,6 +198,20 @@ export default function TopicDetail() {
     }
     return count;
   })();
+
+  // Distinguish failed lessons (were attempted, need retry) from new lessons (never attempted)
+  const failedRetryCount = (() => {
+    if (!outline?.sections) return 0;
+    let count = 0;
+    for (const sec of outline.sections) {
+      for (const les of sec.lessons) {
+        const ls = getLessonStatus(sec.title, les.title);
+        if (ls.failed) count++;
+      }
+    }
+    return count;
+  })();
+
 
   useEffect(() => {
     if (id) {
@@ -512,50 +530,40 @@ export default function TopicDetail() {
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               marginBottom: 24, padding: '14px 20px',
-              background: DS.primaryLight,
+              background: failedRetryCount > 0 ? DS.warningBg : DS.primaryLight,
               borderRadius: DS.radiusSm,
-              borderLeft: `4px solid ${DS.primary}`,
+              borderLeft: `4px solid ${failedRetryCount > 0 ? DS.warning : DS.primary}`,
             }}>
-              <Text style={{ fontSize: 13, color: DS.primary, fontWeight: 500 }}>
-                {topic.status === 'content_ready' ? t('topic.generateNewContentDesc') : t('topic.generateContentDesc')}
+              <Text style={{ fontSize: 13, color: failedRetryCount > 0 ? DS.warning : DS.primary, fontWeight: 500 }}>
+                {failedRetryCount > 0
+                  ? t('topic.regenerateFailedDesc', { count: failedRetryCount })
+                  : topic.status === 'content_ready'
+                    ? t('topic.generateNewContentDesc')
+                    : t('topic.generateContentDesc')}
               </Text>
-              <Space size={8}>
-                {topic.status === 'content_ready' && (
-                  <Button
-                    onClick={handleGenerateContent}
-                    loading={isGenerating}
-                    style={{
-                      borderRadius: DS.radiusSm,
-                      borderColor: DS.primary,
-                      color: DS.primary,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {t('topic.generateNewContent')}
-                  </Button>
-                )}
-                <Button
-                  type="primary"
-                  onClick={handleGenerateContent}
-                  loading={isGenerating}
-                  icon={<ThunderboltOutlined />}
-                  style={{
-                    borderRadius: DS.radiusSm,
-                    background: DS.primary,
-                    borderColor: DS.primary,
-                    fontWeight: 500,
-                  }}
-                >
-                  {topic.status === 'content_ready' ? t('topic.generateNewContent') : t('topic.generateContent')}
-                </Button>
-              </Space>
+              <Button
+                type="primary"
+                onClick={handleGenerateContent}
+                loading={isGenerating}
+                icon={<ThunderboltOutlined />}
+                style={{
+                  borderRadius: DS.radiusSm,
+                  background: failedRetryCount > 0 ? DS.warning : DS.primary,
+                  borderColor: failedRetryCount > 0 ? DS.warning : DS.primary,
+                  fontWeight: 500,
+                }}
+              >
+                {failedRetryCount > 0
+                  ? t('topic.regenerateFailed')
+                  : t('topic.generateContent')}
+              </Button>
             </div>
           )}
 
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             {outline.sections.map((sec, secIdx) => {
               const generatedLessons = topic?.sections?.find(s => s.title === sec.title)?.lessons || [];
-              const doneCount = generatedLessons.filter(l => l.content?.length > 0 && !l.content?.startsWith('[Generation failed:')).length;
+              const doneCount = generatedLessons.filter(l => l.content?.length > 0 && !l.content?.includes('Generation failed')).length;
               const totalCount = sec.lessons.length;
 
               return (

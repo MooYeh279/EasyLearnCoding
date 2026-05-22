@@ -164,7 +164,9 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
                     lesson = existing_les_by_title[les_title]
                     lesson.order = les_idx
                     # Only generate if content is empty or failed
-                    needs_gen = not lesson.content or not lesson.content.startswith('[{"id":')
+                    needs_gen = (not lesson.content or not lesson.content.startswith('[{"id":')
+                                 or 'Generation failed' in lesson.content
+                                 or lesson.content.strip() == '[]')
                     if needs_gen:
                         lesson_map.append({
                             "section_title": sec_title,
@@ -194,7 +196,7 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
         db.commit()
 
         total = len(lesson_map)
-        topic.generation_progress = {"current": 0, "total": total, "current_section": "", "current_lesson": ""}
+        topic.generation_progress = {"current": 0, "total": total, "current_section": "", "current_lesson": "", "failed_lesson_ids": []}
         db.commit()
 
         if total == 0:
@@ -203,7 +205,10 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
             db.commit()
             return
 
+        failed_lesson_ids: list[int] = []
+
         async def run_async():
+            nonlocal failed_lesson_ids
             sem = asyncio.Semaphore(max_concurrency)
 
             async def generate_one(task):
@@ -220,7 +225,7 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
                     except Exception as e:
                         logger.exception("Lesson generation failed: %s/%s",
                                          task["section_title"], task["lesson_title"])
-                        return {**task, "content": f"[Generation failed: {e}]", "error": str(e)}
+                        return {**task, "content": "", "error": str(e)}
 
             tasks = [asyncio.create_task(generate_one(t)) for t in lesson_map]
 
@@ -230,8 +235,10 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
                 completed += 1
 
                 lesson = db.query(LessonModel).filter(LessonModel.id == result["lesson_id"]).first()
-                if lesson:
+                if lesson and result["content"]:
                     lesson.content = _markdown_to_cells(result["content"], language_name)
+                if result["error"]:
+                    failed_lesson_ids.append(result["lesson_id"])
 
                 topic_progress = db.query(Topic).filter(Topic.id == topic_id).first()
                 if topic_progress:
@@ -240,6 +247,7 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
                         "total": total,
                         "current_section": result["section_title"],
                         "current_lesson": result["lesson_title"],
+                        "failed_lesson_ids": list(failed_lesson_ids),
                     }
                 db.commit()
 
@@ -256,8 +264,9 @@ def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
 
         topic = db.query(Topic).filter(Topic.id == topic_id).first()
         if topic:
-            topic.status = TopicStatus.content_ready
-            topic.generation_progress = None
+            all_failed = total > 0 and len(failed_lesson_ids) == total
+            topic.status = TopicStatus.outline_ready if all_failed else TopicStatus.content_ready
+            topic.generation_progress = None if not failed_lesson_ids else {"failed_lesson_ids": failed_lesson_ids}
         db.commit()
     except Exception:
         logger.exception("Content generation setup failed: topic_id=%s", topic_id)

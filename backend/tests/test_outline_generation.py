@@ -203,7 +203,11 @@ def test_generate_content_stream_error_event(mock_lesson_async, client, db):
     resp2 = client.get(f"/api/topics/{topic.id}")
     topic_data = resp2.json()
     assert len(topic_data["sections"][0]["lessons"]) == 2
-    assert "Generation failed" in topic_data["sections"][0]["lessons"][1]["content"]
+    # Failed lesson content should not contain error messages
+    failed_lesson = topic_data["sections"][0]["lessons"][1]
+    assert "Generation failed" not in (failed_lesson["content"] or "")
+    # The generation_progress should be cleared for content_ready status
+    # (failed_lesson_ids tracking is ephemeral during generation)
 
 
 class TestMarkdownToCells:

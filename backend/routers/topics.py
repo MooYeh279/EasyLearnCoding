@@ -159,7 +159,7 @@ def generate_content_stream(topic_id: int, body: ContentGenerateRequest = Conten
         logger.info("generate-content-stream starting: topic_id=%s status=%s", topic_id, topic.status)
 
         topic.status = TopicStatus.generating_content
-        topic.generation_progress = {"current": 0, "total": 0, "current_section": "", "current_lesson": ""}
+        topic.generation_progress = {"current": 0, "total": 0, "current_section": "", "current_lesson": "", "failed_lesson_ids": []}
         db.commit()
     finally:
         db.close()
