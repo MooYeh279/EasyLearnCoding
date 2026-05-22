@@ -178,6 +178,27 @@ const zh: Record<string, string> = {
 
   // CourseHome
   'course.inputHint': '输入你想学习的主题，AI 将为你生成结构化的课程大纲。',
+
+  // Exercise / Quiz
+  'exercise.title': '动手实践',
+  'exercise.generateBtn': '生成实践题',
+  'exercise.startBtn': '开始实践',
+  'exercise.comprehensiveBtn': '综合实验',
+  'exercise.generating': '生成中...',
+  'exercise.generateFail': '生成失败，请重试',
+  'exercise.validationFail': '题目验证未通过，请重新生成',
+  'exercise.runTests': '运行测试',
+  'exercise.resetCode': '重置代码',
+  'exercise.running': '运行中...',
+  'exercise.passed': '{n} 通过',
+  'exercise.failed': '{n} 未通过',
+  'exercise.allPassed': '全部通过',
+  'exercise.testCases': '{n} 个测试用例',
+  'exercise.hints': '提示',
+  'exercise.related': '相关课程',
+  'exercise.tags': '知识点',
+  'exercise.backToTopic': '返回课程',
+  'exercise.preview': '题',
 };
 
 const en: Record<string, string> = {
@@ -364,6 +385,27 @@ const en: Record<string, string> = {
 
   // CourseHome
   'course.inputHint': 'Enter a topic you want to learn and AI will generate a structured course outline for you.',
+
+  // Exercise / Quiz
+  'exercise.title': 'Practice',
+  'exercise.generateBtn': 'Generate Exercise',
+  'exercise.startBtn': 'Start Practice',
+  'exercise.comprehensiveBtn': 'Comprehensive Lab',
+  'exercise.generating': 'Generating...',
+  'exercise.generateFail': 'Generation failed, please retry',
+  'exercise.validationFail': 'Exercise validation failed, please regenerate',
+  'exercise.runTests': 'Run Tests',
+  'exercise.resetCode': 'Reset Code',
+  'exercise.running': 'Running...',
+  'exercise.passed': '{n} passed',
+  'exercise.failed': '{n} failed',
+  'exercise.allPassed': 'All Passed',
+  'exercise.testCases': '{n} test cases',
+  'exercise.hints': 'Hints',
+  'exercise.related': 'Related Lessons',
+  'exercise.tags': 'Knowledge Tags',
+  'exercise.backToTopic': 'Back to Topic',
+  'exercise.preview': 'exercise(s)',
 };
 
 const dicts: Record<ContentLanguage, Record<string, string>> = { zh, en };
