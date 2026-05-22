@@ -18,6 +18,8 @@ const LANG_OPTIONS = [
   { value: 'c',          label: 'C' },
   { value: 'cpp',        label: 'C++' },
   { value: 'bash',       label: 'Bash' },
+  { value: 'cmd',        label: 'CMD' },
+  { value: 'powershell', label: 'PowerShell' },
   { value: 'txt',        label: 'Plain Text' },
 ];
 

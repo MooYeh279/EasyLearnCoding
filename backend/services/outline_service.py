@@ -11,7 +11,7 @@ logger = get_logger("outline")
 
 
 # Languages that produce runnable code cells (not display-only blocks)
-_CODE_LANGUAGES = {"python", "javascript", "typescript", "bash", "shell", "c", "cpp", "cmd"}
+_CODE_LANGUAGES = {"python", "javascript", "typescript", "bash", "shell", "c", "cpp", "cmd", "powershell", "bat", "ps1"}
 
 def _markdown_to_cells(md: str, default_language: str = "python") -> str:
     """Convert AI-generated Markdown into a JSON cell array for notebook rendering.

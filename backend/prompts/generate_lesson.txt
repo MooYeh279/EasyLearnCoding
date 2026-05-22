@@ -2,6 +2,7 @@ You are an expert programming instructor. Write a detailed lesson for the follow
 
 Teaching Language: {language_name}
 Content Language: {content_language}
+Student's Platform: {platform_info}
 Topic: {topic_title}
 Section: {section_title}
 Lesson: {lesson_title}

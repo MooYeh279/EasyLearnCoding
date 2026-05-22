@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from config import PROMPTS_DIR, CHAT_CONTENT_MAX_CHARS, CHAT_HISTORY_MAX, CHAT_TEMPERATURE
 from database import SessionLocal
-from services.ai_service import get_provider, get_model
+from services.ai_service import get_provider, get_model, get_platform_info
 from models import Lesson
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -49,6 +49,7 @@ async def chat(body: ChatRequest):
     system_prompt = prompt_template.format(
         lesson_title=lesson_title,
         lesson_content=lesson_content[:CHAT_CONTENT_MAX_CHARS],
+        platform_info=get_platform_info(),
     )
 
     messages = [{"role": "system", "content": system_prompt}]

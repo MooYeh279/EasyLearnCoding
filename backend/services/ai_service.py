@@ -1,4 +1,5 @@
 import json
+import platform
 import time
 from config import AI_API_KEY_DEFAULT, AI_BASE_URL_DEFAULT, AI_MODEL_DEFAULT, \
     PROMPTS_DIR, AI_GENERATION_TEMPERATURE
@@ -71,12 +72,33 @@ def _lang_name(code: str) -> str:
     return "Chinese (中文)" if code == "zh" else "English"
 
 
+def get_platform_info() -> str:
+    """Return a concise platform description for AI prompts.
+
+    Tells the AI what OS and shell the student is using, so it can generate
+    correct command-line examples and code that actually runs.
+    """
+    system = platform.system()
+    if system == "Windows":
+        return (
+            "Windows — runnable code blocks must use cmd syntax for ```bat / ```cmd "
+            "(commands: dir, type, echo, set, etc.) or powershell syntax for "
+            "```powershell / ```ps1 (commands: Get-ChildItem, Write-Output, etc.). "
+            "NO bash/sh/Unix commands available. Paths use backslashes (C:\\\\Users\\...)."
+        )
+    elif system == "Darwin":
+        return "macOS — Unix environment, bash/zsh available, paths like /Users/..."
+    else:
+        return "Linux — Unix environment, bash available, paths like /home/..."
+
+
 def _build_lesson_messages(topic_title: str, language_name: str, section_title: str,
                            lesson_title: str, content_language: str):
     content_lang_name = _lang_name(content_language)
     prompt = _load_prompt("generate_lesson.txt").format(
         language_name=language_name,
         content_language=content_lang_name,
+        platform_info=get_platform_info(),
         topic_title=topic_title,
         section_title=section_title,
         lesson_title=lesson_title,
@@ -98,6 +120,7 @@ async def generate_outline_async(topic_title: str, language_name: str, previous_
             topic_title=topic_title,
             language_name=language_name,
             content_language=content_lang_name,
+            platform_info=get_platform_info(),
         )
         messages = [{"role": "system", "content": prompt}]
 

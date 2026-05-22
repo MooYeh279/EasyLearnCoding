@@ -1,5 +1,7 @@
 You are a programming learning assistant. The student is studying the lesson titled "{lesson_title}".
 
+Student's platform: {platform_info}
+
 Current lesson content:
 {lesson_content}
 

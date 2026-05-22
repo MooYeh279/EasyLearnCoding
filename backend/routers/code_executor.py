@@ -85,7 +85,7 @@ def _popen(*args, **kwargs):
     return subprocess.Popen(*args, **kwargs)
 
 
-SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "bash", "shell", "c", "cpp", "cmd"}
+SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "bash", "shell", "c", "cpp", "cmd", "powershell", "bat", "ps1"}
 
 # Template configs — the actual command paths may be overridden per-language
 # via the environment config stored in the Language model.
@@ -93,11 +93,14 @@ _BASE_LANG_CONFIG = {
     "python":     {"ext": ".py",  "cmd": [_PYTHON, "-u"]},
     "javascript": {"ext": ".js",  "cmd": ["node"]},
     "typescript": {"ext": ".ts",  "cmd": ["tsx"],              "shell": True, "typecheck_cmd": ["tsc", "--noEmit"]},
-    "bash":       {"ext": ".sh",  "cmd": ["bash"]},
-    "shell":      {"ext": ".sh",  "cmd": ["bash"]},
+    "bash":       {"ext": ".sh",  "cmd": ["bash"],       "shell": True},
+    "shell":      {"ext": ".sh",  "cmd": ["bash"],       "shell": True},
     "c":          {"ext": ".c",   "compile_cmd": ["gcc"],   "run_ext": _EXE_SUFFIX, "timeout": CODE_C_RUN_TIMEOUT},
     "cpp":        {"ext": ".cpp", "compile_cmd": ["g++", "-std=c++17"], "run_ext": _EXE_SUFFIX, "timeout": CODE_C_RUN_TIMEOUT},
     "cmd":        {"ext": ".bat", "cmd": ["cmd", "/c"],         "shell": True},
+    "powershell": {"ext": ".ps1", "cmd": ["powershell", "-File"], "shell": True},
+    "bat":        {"ext": ".bat", "cmd": ["cmd", "/c"],         "shell": True},
+    "ps1":        {"ext": ".ps1", "cmd": ["powershell", "-File"], "shell": True},
 }
 
 # Cache of merged config overrides per language — cleared when env config changes
@@ -170,6 +173,11 @@ def _resolve_lang_config(lang: str) -> dict:
         return _env_overrides[lang]
 
     base = _BASE_LANG_CONFIG[lang].copy()
+
+    # On Windows, always use cmd for bash/shell — bash/WSL is unreliable
+    if lang in ("bash", "shell") and _IS_WIN:
+        base.update({"cmd": ["cmd", "/c"], "ext": ".bat", "inline": True})
+
     env = _PY_ENV.copy()
 
     all_configs, path_entries = _collect_env_overrides()
