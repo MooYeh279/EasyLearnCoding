@@ -31,10 +31,8 @@ const C = {
 export default function TestRunner({ template, running, testResult, onRun }: Props) {
   const { t } = useContentLang();
   const [code, setCode] = useState(template);
-  const [editorMounted, setEditorMounted] = useState(false);
 
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
-    setEditorMounted(true);
     editor.addAction({
       id: 'run-tests',
       label: 'Run Tests',
