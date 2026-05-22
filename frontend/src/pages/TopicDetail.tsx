@@ -10,7 +10,7 @@ import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
 import { langPlaceholder } from '../i18n/translations';
 import StatusProgress from '../components/StatusProgress';
-import type { Topic, TopicOutline, OutlineSection } from '../types';
+import type { Topic, TopicOutline, OutlineSection, Exercise } from '../types';
 import AppLayout from '../components/AppLayout';
 
 const { Text } = Typography;
@@ -104,6 +104,8 @@ export default function TopicDetail() {
   const [editLessonTitle, setEditLessonTitle] = useState('');
   const [dragSecIdx, setDragSecIdx] = useState<number | null>(null);
   const [dragLesKey, setDragLesKey] = useState<string | null>(null);
+  const [generatingExercise, setGeneratingExercise] = useState<number | null>(null);
+  const [sectionExercises, setSectionExercises] = useState<Record<number, Exercise[]>>({});
 
   // -- Drag and drop handlers --
 
@@ -243,6 +245,38 @@ export default function TopicDetail() {
     }, 2000);
     return () => clearInterval(timer);
   }, [topic?.status, id]);
+
+  // Load existing exercises for sections
+  useEffect(() => {
+    if (!topic || !id) return;
+    const secs = topic.sections || [];
+    Promise.all(
+      secs.map((sec) =>
+        api.getSectionExercises(sec.id).catch(() => [] as Exercise[])
+      )
+    ).then((results) => {
+      const map: Record<number, Exercise[]> = {};
+      secs.forEach((sec, i) => { map[sec.id] = results[i] || []; });
+      setSectionExercises(map);
+    }).catch(() => {});
+  }, [topic, id]);
+
+  const handleGenerateExercise = async (sectionId: number) => {
+    setGeneratingExercise(sectionId);
+    try {
+      const exercise = await api.generateSectionExercise(sectionId);
+      setSectionExercises((prev) => ({
+        ...prev,
+        [sectionId]: [...(prev[sectionId] || []), exercise],
+      }));
+      message.success(t('exercise.generateSuccess'));
+    } catch (err: any) {
+      const detail = err?.message;
+      message.error(typeof detail === 'string' ? detail : t('exercise.generateFail'));
+    } finally {
+      setGeneratingExercise(null);
+    }
+  };
 
   // -- Persist helpers (auto-save outline changes to backend) --
 
@@ -557,6 +591,10 @@ export default function TopicDetail() {
               const generatedLessons = topic?.sections?.find(s => s.title === sec.title)?.lessons || [];
               const doneCount = generatedLessons.filter(l => l.content?.length > 0 && !l.content?.startsWith('[Generation failed:')).length;
               const totalCount = sec.lessons.length;
+              const allLessonsGenerated = generatedLessons.every(
+                l => l.content?.length > 0 && !l.content?.startsWith('[Generation failed:')
+              ) && totalCount > 0;
+              const sectionId = topic?.sections?.find(s => s.title === sec.title)?.id;
 
               return (
                 <div
@@ -632,6 +670,31 @@ export default function TopicDetail() {
                         </Tag>
                       )}
                     </div>
+                    {allLessonsGenerated && sectionId && (
+                      (sectionExercises[sectionId] || []).length > 0 ? (
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() => {
+                            const ex = sectionExercises[sectionId][0];
+                            if (ex) navigate(`/topics/${id}/exercise/${ex.id}`);
+                          }}
+                          style={{ fontSize: 12, padding: '0 4px', color: DS.primary }}
+                        >
+                          {t('exercise.startBtn')}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          type="text"
+                          loading={generatingExercise === sectionId}
+                          onClick={() => handleGenerateExercise(sectionId)}
+                          style={{ fontSize: 12, color: DS.textSecondary }}
+                        >
+                          {generatingExercise === sectionId ? t('exercise.generating') : t('exercise.generateBtn')}
+                        </Button>
+                      )
+                    )}
                     <Space size={4}>
                       <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => addLesson(secIdx)}
                         title={t('topic.addLesson')} style={{ color: DS.textSecondary }} />
