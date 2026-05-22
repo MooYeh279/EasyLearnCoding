@@ -4,10 +4,11 @@ from http import HTTPStatus
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from config import CODE_MAX_LENGTH
 from database import get_db
 from models import Exercise, Section, Topic, Lesson
 from services.ai_service import generate_exercise_async
-from services.exercise_service import build_exercise_script, validate_exercise, parse_test_results
+from services.exercise_service import validate_exercise
 from logger import get_logger
 
 logger = get_logger("exercises")
@@ -86,10 +87,18 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
         )
 
     # 3. Save to database
+    question = exercise_data.get("question", "")
+    if not question:
+        raise HTTPException(
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            detail="AI generation did not produce a question",
+        )
+
     exercise = Exercise(
         section_id=section_id,
         type="section",
-        question=exercise_data["question"],
+        language=language_name,
+        question=question,
         template=exercise_data.get("template", ""),
         test_cases=json.dumps(test_cases, ensure_ascii=False),
         solution=solution,
@@ -139,9 +148,17 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
             },
         )
 
+    question = exercise_data.get("question", "")
+    if not question:
+        raise HTTPException(
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            detail="AI generation did not produce a question",
+        )
+
     exercise = Exercise(
         type="topic",
-        question=exercise_data["question"],
+        language=language_name,
+        question=question,
         template=exercise_data.get("template", ""),
         test_cases=json.dumps(test_cases, ensure_ascii=False),
         solution=solution,
@@ -168,17 +185,21 @@ def run_exercise(exercise_id: int, req: RunExerciseRequest, db: Session = Depend
     if not exercise:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Exercise not found")
 
-    # Determine language from exercise context
-    language = "python"  # default
-    if exercise.section_id:
-        section = db.query(Section).filter(Section.id == exercise.section_id).first()
-        if section:
-            topic = db.query(Topic).filter(Topic.id == section.topic_id).first()
-            if topic and topic.course and topic.course.language:
-                language = topic.course.language.name
+    if len(req.code) > CODE_MAX_LENGTH:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=f"Code too long ({len(req.code)} chars, max {CODE_MAX_LENGTH})",
+        )
 
-    test_cases = json.loads(exercise.test_cases) if isinstance(exercise.test_cases, str) else exercise.test_cases
-    result = validate_exercise(language, req.code, test_cases)
+    try:
+        test_cases = json.loads(exercise.test_cases) if isinstance(exercise.test_cases, str) else exercise.test_cases
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail="Exercise test cases are malformed",
+        )
+
+    result = validate_exercise(exercise.language, req.code, test_cases)
     return result
 
 

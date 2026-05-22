@@ -39,6 +39,12 @@ def migrate():
                 "ALTER TABLE languages ADD COLUMN env_config JSON"
             ))
             conn.commit()
+    if not _column_exists("exercises", "language"):
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE exercises ADD COLUMN language TEXT NOT NULL DEFAULT 'python'"
+            ))
+            conn.commit()
     if not _column_nullable("exercises", "lesson_id"):
         with engine.connect() as conn:
             sql = __import__("sqlalchemy").text
@@ -54,13 +60,14 @@ def migrate():
                 "template TEXT DEFAULT '',"
                 "test_cases TEXT DEFAULT '',"
                 "solution TEXT DEFAULT '',"
+                "language TEXT NOT NULL DEFAULT 'python',"
                 "knowledge_tags JSON DEFAULT '[]',"
                 "hints JSON DEFAULT '[]'"
                 ")"
             ))
             conn.execute(sql(
-                "INSERT INTO exercises_new (id, lesson_id, question, template, test_cases, solution)"
-                "SELECT id, lesson_id, question, template, test_cases, solution FROM exercises"
+                "INSERT INTO exercises_new (id, lesson_id, section_id, type, question, template, test_cases, solution, language, knowledge_tags, hints)"
+                "SELECT id, lesson_id, section_id, type, question, template, test_cases, solution, language, knowledge_tags, hints FROM exercises"
             ))
             conn.execute(sql("DROP TABLE exercises"))
             conn.execute(sql("ALTER TABLE exercises_new RENAME TO exercises"))
