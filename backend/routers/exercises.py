@@ -192,14 +192,12 @@ def get_section_exercises(section_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/topics/{topic_id}/exercises")
-def get_topic_exercises(topic_id: int, type: str | None = None, db: Session = Depends(get_db)):
-    query = db.query(Exercise).filter(Exercise.type == "topic")
-    # Filter by sections belonging to this topic
+def get_topic_exercises(topic_id: int, db: Session = Depends(get_db)):
+    # Return section exercises for this topic's sections AND topic-level exercises
     section_ids = [
         s.id for s in db.query(Section).filter(Section.topic_id == topic_id).all()
     ]
-    query = query.filter(
-        (Exercise.section_id.in_(section_ids)) | (Exercise.type == "topic")
-    )
-    exercises = query.all()
+    exercises = db.query(Exercise).filter(
+        Exercise.section_id.in_(section_ids) | (Exercise.type == "topic")
+    ).all()
     return [_ex_to_response(e) for e in exercises]
