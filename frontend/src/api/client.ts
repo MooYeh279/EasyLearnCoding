@@ -188,6 +188,29 @@ export const api = {
   testAiConnection: (config: { api_key: string; base_url: string; model: string }): Promise<{ ok: boolean; latency_ms: number; error?: string }> =>
     request('/settings/ai/test', { method: 'POST', body: JSON.stringify(config) }),
 
+  // Exercises
+  generateSectionExercise: (sectionId: number) =>
+    request<import('../types').Exercise>(`/sections/${sectionId}/generate-exercise`, {
+      method: 'POST',
+    }),
+
+  generateTopicExercise: (topicId: number) =>
+    request<import('../types').Exercise>(`/topics/${topicId}/generate-comprehensive-exercise`, {
+      method: 'POST',
+    }),
+
+  getExercise: (id: number) =>
+    request<import('../types').Exercise>(`/exercises/${id}`),
+
+  runExercise: (id: number, code: string) =>
+    request<import('../types').ExerciseRunResponse>(`/exercises/${id}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  getSectionExercises: (sectionId: number) =>
+    request<import('../types').Exercise[]>(`/sections/${sectionId}/exercises`),
+
   // Workspace settings
   getWorkspace: (): Promise<{ path: string }> =>
     request('/settings/workspace'),
