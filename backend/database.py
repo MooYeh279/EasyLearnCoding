@@ -17,6 +17,15 @@ def _column_exists(table: str, column: str) -> bool:
     return column in cols
 
 
+def _column_nullable(table: str, column: str) -> bool:
+    import sqlalchemy
+    insp = sqlalchemy.inspect(engine)
+    for c in insp.get_columns(table):
+        if c["name"] == column:
+            return c["nullable"]
+    return False
+
+
 def migrate():
     if not _column_exists("topics", "generation_progress"):
         with engine.connect() as conn:
@@ -30,20 +39,31 @@ def migrate():
                 "ALTER TABLE languages ADD COLUMN env_config JSON"
             ))
             conn.commit()
-    if not _column_exists("exercises", "section_id"):
+    if not _column_nullable("exercises", "lesson_id"):
         with engine.connect() as conn:
-            conn.execute(__import__("sqlalchemy").text(
-                "ALTER TABLE exercises ADD COLUMN section_id INTEGER REFERENCES sections(id)"
+            sql = __import__("sqlalchemy").text
+            # SQLite does not support ALTER COLUMN to drop NOT NULL,
+            # so rebuild the exercises table with the correct schema.
+            conn.execute(sql(
+                "CREATE TABLE exercises_new ("
+                "id INTEGER PRIMARY KEY,"
+                "lesson_id INTEGER REFERENCES lessons(id),"
+                "section_id INTEGER REFERENCES sections(id),"
+                "type TEXT NOT NULL DEFAULT 'section',"
+                "question TEXT NOT NULL,"
+                "template TEXT DEFAULT '',"
+                "test_cases TEXT DEFAULT '',"
+                "solution TEXT DEFAULT '',"
+                "knowledge_tags JSON DEFAULT '[]',"
+                "hints JSON DEFAULT '[]'"
+                ")"
             ))
-            conn.execute(__import__("sqlalchemy").text(
-                "ALTER TABLE exercises ADD COLUMN type TEXT DEFAULT 'section'"
+            conn.execute(sql(
+                "INSERT INTO exercises_new (id, lesson_id, question, template, test_cases, solution)"
+                "SELECT id, lesson_id, question, template, test_cases, solution FROM exercises"
             ))
-            conn.execute(__import__("sqlalchemy").text(
-                "ALTER TABLE exercises ADD COLUMN knowledge_tags JSON DEFAULT '[]'"
-            ))
-            conn.execute(__import__("sqlalchemy").text(
-                "ALTER TABLE exercises ADD COLUMN hints JSON DEFAULT '[]'"
-            ))
+            conn.execute(sql("DROP TABLE exercises"))
+            conn.execute(sql("ALTER TABLE exercises_new RENAME TO exercises"))
             conn.commit()
 
 

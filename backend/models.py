@@ -75,6 +75,7 @@ class Section(Base):
     order = Column(Integer, nullable=False)
     topic = relationship("Topic", back_populates="sections")
     lessons = relationship("Lesson", back_populates="section", cascade="all, delete-orphan")
+    exercises = relationship("Exercise", back_populates="section", cascade="all, delete-orphan")
 
 
 class Lesson(Base):
@@ -114,6 +115,7 @@ class Exercise(Base):
     knowledge_tags = Column(JSON, default=list)
     hints = Column(JSON, default=list)
     lesson = relationship("Lesson", back_populates="exercises")
+    section = relationship("Section", back_populates="exercises")
 
 
 class AppSetting(Base):
