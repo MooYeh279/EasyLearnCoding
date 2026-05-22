@@ -30,6 +30,21 @@ def migrate():
                 "ALTER TABLE languages ADD COLUMN env_config JSON"
             ))
             conn.commit()
+    if not _column_exists("exercises", "section_id"):
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE exercises ADD COLUMN section_id INTEGER REFERENCES sections(id)"
+            ))
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE exercises ADD COLUMN type TEXT DEFAULT 'section'"
+            ))
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE exercises ADD COLUMN knowledge_tags JSON DEFAULT '[]'"
+            ))
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE exercises ADD COLUMN hints JSON DEFAULT '[]'"
+            ))
+            conn.commit()
 
 
 def get_db():

@@ -104,11 +104,15 @@ class CodeBlock(Base):
 class Exercise(Base):
     __tablename__ = "exercises"
     id = Column(Integer, primary_key=True, index=True)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=False)
+    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=True)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=True)
+    type = Column(String(20), default="section", nullable=False)  # "section" | "topic"
     question = Column(Text, nullable=False)
     template = Column(Text, default="")
     test_cases = Column(Text, default="")
     solution = Column(Text, default="")
+    knowledge_tags = Column(JSON, default=list)
+    hints = Column(JSON, default=list)
     lesson = relationship("Lesson", back_populates="exercises")
 
 
