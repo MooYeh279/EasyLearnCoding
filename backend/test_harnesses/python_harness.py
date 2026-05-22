@@ -10,9 +10,9 @@ def __test__(name, fn):
         __results__.append({"name": name, "passed": False,
                            "error": str(e).split("\\n")[0]})
 
-{user_code}
+__USER_CODE__
 
-{test_cases}
+__TEST_CASES__
 
 print("__RESULTS__" + json.dumps({"results": __results__}, ensure_ascii=False))
 """
@@ -35,4 +35,6 @@ def build_python_script(user_code: str, test_cases: str) -> str:
         raise TypeError("user_code must not be None")
     if test_cases is None:
         raise TypeError("test_cases must not be None")
-    return PYTHON_HARNESS.replace("{user_code}", user_code).replace("{test_cases}", test_cases)
+    if not test_cases.strip():
+        raise ValueError("test_cases must not be empty")
+    return PYTHON_HARNESS.replace("__USER_CODE__", user_code).replace("__TEST_CASES__", test_cases)
