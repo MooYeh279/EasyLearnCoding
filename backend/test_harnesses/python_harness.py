@@ -2,6 +2,8 @@ PYTHON_HARNESS = """\
 import json
 
 __results__ = []
+def __assert__(expr):
+    if not expr: raise AssertionError("test failed")
 def __test__(name, fn):
     try:
         fn()
