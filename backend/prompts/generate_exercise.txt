@@ -8,6 +8,8 @@ Target knowledge: {knowledge_description}
 
 {platform_info}
 
+Content language: {content_language}
+
 Generate a coding exercise that tests whether the student has mastered the section's key concepts.
 Output ONLY valid JSON (no markdown wrapping, no code fences). The JSON must have this structure:
 
