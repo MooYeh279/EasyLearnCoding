@@ -1,7 +1,8 @@
+import os
 import time
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from config import CORS_ORIGINS, FRONTEND_DIST
 from database import engine, Base, SessionLocal
 import models  # noqa: F401 — registers all models with Base.metadata
@@ -98,6 +99,21 @@ def health():
     return {"status": "ok"}
 
 
-# Serve built frontend as SPA (when available)
-if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+# SPA fallback — serve index.html for any non-API path
+# Must be registered AFTER all API routers
+_FRONTEND_READY = FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists()
+
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    if not _FRONTEND_READY:
+        raise HTTPException(status_code=404, detail="Not Found")
+    # Prevent directory traversal
+    requested = os.path.normpath(str(FRONTEND_DIST / full_path))
+    if not requested.startswith(str(FRONTEND_DIST.resolve())):
+        raise HTTPException(status_code=404, detail="Not Found")
+    # Serve existing static files directly
+    if os.path.isfile(requested):
+        return FileResponse(requested)
+    # SPA fallback: serve index.html for all frontend routes
+    return FileResponse(str(FRONTEND_DIST / "index.html"))
