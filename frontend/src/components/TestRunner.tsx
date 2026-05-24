@@ -92,8 +92,8 @@ export default function TestRunner({ exerciseId, template, running, testResult, 
         </Tooltip>
       </div>
 
-      {/* Monaco editor */}
-      <div style={{ flex: 1, background: C.codeBg }}>
+      {/* Monaco editor — minHeight:0 + overflow:hidden lets it shrink when results appear */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', background: C.codeBg }}>
         <Suspense fallback={
           <div style={{ background: C.codeBg, padding: '20px 24px' }}>
             <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>{t('exercise.editorLoading')}</span>
@@ -146,11 +146,11 @@ export default function TestRunner({ exerciseId, template, running, testResult, 
         <span style={{ fontSize: 12, color: C.textMuted }}>Ctrl+Enter</span>
       </div>
 
-      {/* Test results panel */}
+      {/* Test results panel — capped at 45% of viewport so it's always visible */}
       {hasResults && (
         <div style={{
           borderTop: `1px solid ${C.border}`, background: '#fff',
-          maxHeight: 260, overflowY: 'auto',
+          maxHeight: '45vh', overflowY: 'auto', flexShrink: 0,
         }}>
           {/* Results header */}
           <div style={{

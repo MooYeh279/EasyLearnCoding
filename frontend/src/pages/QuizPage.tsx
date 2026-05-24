@@ -7,6 +7,7 @@ import { useContentLang } from '../context/LangContext';
 import type { Exercise, ExerciseRunResponse } from '../types';
 import ExercisePanel from '../components/ExercisePanel';
 import TestRunner from '../components/TestRunner';
+import SplitPane from '../components/SplitPane';
 
 const C = {
   pageBg: '#faf9f7',
@@ -80,12 +81,17 @@ export default function QuizPage() {
         </div>
       </div>
 
-      {/* Main content: left + right */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      {/* Main content: left + right (resizable split) */}
+      <SplitPane
+        initialLeft="44%"
+        minLeft="280px"
+        minRight="340px"
+        style={{ flex: 1 }}
+      >
         {/* Left panel */}
         <div style={{
-          width: '44%', borderRight: `1px solid ${C.border}`,
-          display: 'flex', flexDirection: 'column', background: '#fff',
+          height: '100%', display: 'flex', flexDirection: 'column',
+          background: '#fff', borderRight: `1px solid ${C.border}`,
         }}>
           <ExercisePanel
             exercise={exercise}
@@ -95,7 +101,7 @@ export default function QuizPage() {
         </div>
 
         {/* Right panel */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <TestRunner
             exerciseId={Number(exerciseId)}
             template={exercise.template}
@@ -104,7 +110,7 @@ export default function QuizPage() {
             onRun={handleRun}
           />
         </div>
-      </div>
+      </SplitPane>
     </div>
   );
 }
