@@ -4,7 +4,7 @@ import { Button, Input, Typography, Tag, Spin, Alert, message, Progress, Space, 
 import {
   ThunderboltOutlined, CheckCircleOutlined,
   SendOutlined, ReloadOutlined, CloseOutlined, CheckOutlined,
-  PlusOutlined, DeleteOutlined, HolderOutlined,
+  PlusOutlined, DeleteOutlined, HolderOutlined, ExperimentOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
@@ -106,6 +106,8 @@ export default function TopicDetail() {
   const [dragLesKey, setDragLesKey] = useState<string | null>(null);
   const [generatingExercise, setGeneratingExercise] = useState<number | null>(null);
   const [sectionExercises, setSectionExercises] = useState<Record<number, Exercise[]>>({});
+  const [topicExercise, setTopicExercise] = useState<Exercise | null>(null);
+  const [generatingTopicExercise, setGeneratingTopicExercise] = useState(false);
 
   // -- Drag and drop handlers --
 
@@ -246,18 +248,24 @@ export default function TopicDetail() {
     return () => clearInterval(timer);
   }, [topic?.status, id]);
 
-  // Load existing exercises for sections
+  // Load existing exercises for sections and topic
   useEffect(() => {
     if (!topic || !id) return;
     const secs = topic.sections || [];
-    Promise.all(
-      secs.map((sec) =>
+    Promise.all([
+      ...secs.map((sec) =>
         api.getSectionExercises(sec.id).catch(() => [] as Exercise[])
-      )
-    ).then((results) => {
+      ),
+      api.getTopicExercises(Number(id)).catch(() => [] as Exercise[]),
+    ]).then((results) => {
+      const secResults = results.slice(0, secs.length);
+      const topicResults = results[secs.length] as Exercise[];
       const map: Record<number, Exercise[]> = {};
-      secs.forEach((sec, i) => { map[sec.id] = results[i] || []; });
+      secs.forEach((sec, i) => { map[sec.id] = secResults[i] || []; });
       setSectionExercises(map);
+      // Pick the first topic-level exercise
+      const topicEx = topicResults.find(e => e.type === 'topic');
+      if (topicEx) setTopicExercise(topicEx);
     }).catch(() => {});
   }, [topic, id]);
 
@@ -275,6 +283,21 @@ export default function TopicDetail() {
       message.error(typeof detail === 'string' ? detail : t('exercise.generateFail'));
     } finally {
       setGeneratingExercise(null);
+    }
+  };
+
+  const handleGenerateTopicExercise = async () => {
+    if (!id) return;
+    setGeneratingTopicExercise(true);
+    try {
+      const exercise = await api.generateTopicExercise(Number(id));
+      setTopicExercise(exercise);
+      message.success(t('exercise.generateSuccess'));
+    } catch (err: any) {
+      const detail = err?.message;
+      message.error(typeof detail === 'string' ? detail : t('exercise.generateFail'));
+    } finally {
+      setGeneratingTopicExercise(false);
     }
   };
 
@@ -445,7 +468,7 @@ export default function TopicDetail() {
           loading={isGenerating}
         />
         {topic.status === 'content_ready' && (
-          <div style={{ textAlign: 'center', marginTop: 8 }}>
+          <div style={{ textAlign: 'center', marginTop: 8, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button
               type="primary"
               onClick={() => {
@@ -477,6 +500,44 @@ export default function TopicDetail() {
             >
               {t('topic.startLearning')}
             </Button>
+            {topicExercise ? (
+              <Button
+                onClick={() => navigate(`/topics/${id}/exercise/${topicExercise.id}`)}
+                style={{
+                  height: 48,
+                  padding: '0 36px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: DS.radiusSm,
+                  borderColor: DS.primary,
+                  color: DS.primary,
+                  maxWidth: 300,
+                  width: '100%',
+                }}
+                icon={<ExperimentOutlined />}
+              >
+                {t('exercise.startBtn')}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleGenerateTopicExercise}
+                loading={generatingTopicExercise}
+                style={{
+                  height: 48,
+                  padding: '0 36px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: DS.radiusSm,
+                  borderColor: DS.primary,
+                  color: DS.primary,
+                  maxWidth: 300,
+                  width: '100%',
+                }}
+                icon={<ExperimentOutlined />}
+              >
+                {generatingTopicExercise ? t('exercise.generating') : t('exercise.comprehensiveBtn')}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -674,22 +735,25 @@ export default function TopicDetail() {
                       (sectionExercises[sectionId] || []).length > 0 ? (
                         <Button
                           size="small"
-                          type="link"
+                          type="primary"
+                          ghost
+                          icon={<ExperimentOutlined />}
                           onClick={() => {
                             const ex = sectionExercises[sectionId][0];
                             if (ex) navigate(`/topics/${id}/exercise/${ex.id}`);
                           }}
-                          style={{ fontSize: 12, padding: '0 4px', color: DS.primary }}
+                          style={{ fontSize: 12, borderRadius: DS.radiusXs }}
                         >
                           {t('exercise.startBtn')}
                         </Button>
                       ) : (
                         <Button
                           size="small"
-                          type="text"
+                          type="default"
+                          icon={<ExperimentOutlined />}
                           loading={generatingExercise === sectionId}
                           onClick={() => handleGenerateExercise(sectionId)}
-                          style={{ fontSize: 12, color: DS.textSecondary }}
+                          style={{ fontSize: 12, borderRadius: DS.radiusXs }}
                         >
                           {generatingExercise === sectionId ? t('exercise.generating') : t('exercise.generateBtn')}
                         </Button>

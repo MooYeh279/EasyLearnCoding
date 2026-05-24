@@ -211,6 +211,9 @@ export const api = {
   getSectionExercises: (sectionId: number) =>
     request<import('../types').Exercise[]>(`/sections/${sectionId}/exercises`),
 
+  getTopicExercises: (topicId: number) =>
+    request<import('../types').Exercise[]>(`/topics/${topicId}/exercises`),
+
   // Workspace settings
   getWorkspace: (): Promise<{ path: string }> =>
     request('/settings/workspace'),
