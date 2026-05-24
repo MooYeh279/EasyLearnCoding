@@ -8,7 +8,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+    const raw = err.detail;
+    const detail = typeof raw === 'object' ? (raw as any).message || JSON.stringify(raw) : raw;
+    throw new Error(String(detail || `HTTP ${res.status}`));
   }
   return res.json();
 }
@@ -187,6 +189,32 @@ export const api = {
 
   testAiConnection: (config: { api_key: string; base_url: string; model: string }): Promise<{ ok: boolean; latency_ms: number; error?: string }> =>
     request('/settings/ai/test', { method: 'POST', body: JSON.stringify(config) }),
+
+  // Exercises
+  generateSectionExercise: (sectionId: number) =>
+    request<import('../types').Exercise>(`/sections/${sectionId}/generate-exercise`, {
+      method: 'POST',
+    }),
+
+  generateTopicExercise: (topicId: number) =>
+    request<import('../types').Exercise>(`/topics/${topicId}/generate-comprehensive-exercise`, {
+      method: 'POST',
+    }),
+
+  getExercise: (id: number) =>
+    request<import('../types').Exercise>(`/exercises/${id}`),
+
+  runExercise: (id: number, code: string) =>
+    request<import('../types').ExerciseRunResponse>(`/exercises/${id}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  getSectionExercises: (sectionId: number) =>
+    request<import('../types').Exercise[]>(`/sections/${sectionId}/exercises`),
+
+  getTopicExercises: (topicId: number) =>
+    request<import('../types').Exercise[]>(`/topics/${topicId}/exercises`),
 
   // Workspace settings
   getWorkspace: (): Promise<{ path: string }> =>

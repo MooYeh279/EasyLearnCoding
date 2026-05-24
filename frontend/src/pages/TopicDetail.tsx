@@ -4,13 +4,13 @@ import { Button, Input, Typography, Tag, Spin, Alert, message, Progress, Space, 
 import {
   ThunderboltOutlined, CheckCircleOutlined,
   SendOutlined, ReloadOutlined, CloseOutlined, CheckOutlined,
-  PlusOutlined, DeleteOutlined, HolderOutlined,
+  PlusOutlined, DeleteOutlined, HolderOutlined, ExperimentOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
 import { langPlaceholder } from '../i18n/translations';
 import StatusProgress from '../components/StatusProgress';
-import type { Topic, TopicOutline, OutlineSection } from '../types';
+import type { Topic, TopicOutline, OutlineSection, Exercise } from '../types';
 import AppLayout from '../components/AppLayout';
 
 const { Text } = Typography;
@@ -104,6 +104,10 @@ export default function TopicDetail() {
   const [editLessonTitle, setEditLessonTitle] = useState('');
   const [dragSecIdx, setDragSecIdx] = useState<number | null>(null);
   const [dragLesKey, setDragLesKey] = useState<string | null>(null);
+  const [generatingExercise, setGeneratingExercise] = useState<number | null>(null);
+  const [sectionExercises, setSectionExercises] = useState<Record<number, Exercise[]>>({});
+  const [topicExercise, setTopicExercise] = useState<Exercise | null>(null);
+  const [generatingTopicExercise, setGeneratingTopicExercise] = useState(false);
 
   // -- Drag and drop handlers --
 
@@ -261,6 +265,57 @@ export default function TopicDetail() {
     }, 2000);
     return () => clearInterval(timer);
   }, [topic?.status, id]);
+
+  // Load existing exercises for sections and topic
+  useEffect(() => {
+    if (!topic || !id) return;
+    const secs = topic.sections || [];
+    Promise.all([
+      ...secs.map((sec) =>
+        api.getSectionExercises(sec.id).catch(() => [] as Exercise[])
+      ),
+      api.getTopicExercises(Number(id)).catch(() => [] as Exercise[]),
+    ]).then((results) => {
+      const secResults = results.slice(0, secs.length);
+      const topicResults = results[secs.length] as Exercise[];
+      const map: Record<number, Exercise[]> = {};
+      secs.forEach((sec, i) => { map[sec.id] = secResults[i] || []; });
+      setSectionExercises(map);
+      // Pick the first topic-level exercise
+      const topicEx = topicResults.find(e => e.type === 'topic');
+      if (topicEx) setTopicExercise(topicEx);
+    }).catch(() => {});
+  }, [topic, id]);
+
+  const handleGenerateExercise = async (sectionId: number) => {
+    setGeneratingExercise(sectionId);
+    try {
+      const exercise = await api.generateSectionExercise(sectionId);
+      setSectionExercises((prev) => ({
+        ...prev,
+        [sectionId]: [...(prev[sectionId] || []), exercise],
+      }));
+      message.success(t('exercise.generateSuccess'));
+    } catch (err: any) {
+      message.error(t('exercise.generateFail'));
+    } finally {
+      setGeneratingExercise(null);
+    }
+  };
+
+  const handleGenerateTopicExercise = async () => {
+    if (!id) return;
+    setGeneratingTopicExercise(true);
+    try {
+      const exercise = await api.generateTopicExercise(Number(id));
+      setTopicExercise(exercise);
+      message.success(t('exercise.generateSuccess'));
+    } catch (err: any) {
+      message.error(t('exercise.generateFail'));
+    } finally {
+      setGeneratingTopicExercise(false);
+    }
+  };
 
   // -- Persist helpers (auto-save outline changes to backend) --
 
@@ -429,7 +484,7 @@ export default function TopicDetail() {
           loading={isGenerating}
         />
         {topic.status === 'content_ready' && (
-          <div style={{ textAlign: 'center', marginTop: 8 }}>
+          <div style={{ textAlign: 'center', marginTop: 8, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button
               type="primary"
               onClick={() => {
@@ -461,6 +516,44 @@ export default function TopicDetail() {
             >
               {t('topic.startLearning')}
             </Button>
+            {topicExercise ? (
+              <Button
+                onClick={() => navigate(`/topics/${id}/exercise/${topicExercise.id}`)}
+                style={{
+                  height: 48,
+                  padding: '0 36px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: DS.radiusSm,
+                  borderColor: DS.primary,
+                  color: DS.primary,
+                  maxWidth: 300,
+                  width: '100%',
+                }}
+                icon={<ExperimentOutlined />}
+              >
+                {t('exercise.startBtn')}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleGenerateTopicExercise}
+                loading={generatingTopicExercise}
+                style={{
+                  height: 48,
+                  padding: '0 36px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: DS.radiusSm,
+                  borderColor: DS.primary,
+                  color: DS.primary,
+                  maxWidth: 300,
+                  width: '100%',
+                }}
+                icon={<ExperimentOutlined />}
+              >
+                {generatingTopicExercise ? t('exercise.generating') : t('exercise.comprehensiveBtn')}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -565,6 +658,10 @@ export default function TopicDetail() {
               const generatedLessons = topic?.sections?.find(s => s.title === sec.title)?.lessons || [];
               const doneCount = generatedLessons.filter(l => l.content?.length > 0 && !l.content?.includes('Generation failed')).length;
               const totalCount = sec.lessons.length;
+              const allLessonsGenerated = generatedLessons.every(
+                l => l.content?.length > 0 && !l.content?.startsWith('[Generation failed:')
+              ) && totalCount > 0;
+              const sectionId = topic?.sections?.find(s => s.title === sec.title)?.id;
 
               return (
                 <div
@@ -640,6 +737,34 @@ export default function TopicDetail() {
                         </Tag>
                       )}
                     </div>
+                    {allLessonsGenerated && sectionId && (
+                      (sectionExercises[sectionId] || []).length > 0 ? (
+                        <Button
+                          size="small"
+                          type="primary"
+                          ghost
+                          icon={<ExperimentOutlined />}
+                          onClick={() => {
+                            const ex = sectionExercises[sectionId][0];
+                            if (ex) navigate(`/topics/${id}/exercise/${ex.id}`);
+                          }}
+                          style={{ fontSize: 12, borderRadius: DS.radiusXs }}
+                        >
+                          {t('exercise.startBtn')}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          type="default"
+                          icon={<ExperimentOutlined />}
+                          loading={generatingExercise === sectionId}
+                          onClick={() => handleGenerateExercise(sectionId)}
+                          style={{ fontSize: 12, borderRadius: DS.radiusXs }}
+                        >
+                          {generatingExercise === sectionId ? t('exercise.generating') : t('exercise.generateBtn')}
+                        </Button>
+                      )
+                    )}
                     <Space size={4}>
                       <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => addLesson(secIdx)}
                         title={t('topic.addLesson')} style={{ color: DS.textSecondary }} />

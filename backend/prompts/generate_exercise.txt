@@ -1,0 +1,46 @@
+You are generating a hands-on coding exercise for a programming student.
+The student has just completed the following section of study.
+
+Language: {language_name}
+Topic: {topic_title}
+Section: {section_title}
+Target knowledge: {knowledge_description}
+
+{platform_info}
+
+Content language: {content_language}
+
+IMPORTANT: ALL user-facing text MUST be written in {content_language}. This includes:
+- question (problem description)
+- test_cases[].name (test case names)
+- hints (all hint strings)
+- knowledge_tags (tag names)
+
+Only code identifiers, assertion expressions, and Python/JS/C/etc keywords are in English. Every word the student reads must be in {content_language}.
+
+Generate a coding exercise that tests whether the student has mastered the section's key concepts.
+Output ONLY valid JSON (no markdown wrapping, no code fences). The JSON must have this structure:
+
+{{
+  "question": "Markdown description of the problem. Include:\\n- Background context referencing the section content\\n- Clear requirements\\n- 1-2 examples showing expected behavior",
+  "knowledge_tags": ["tag1", "tag2"],
+  "template": "Code skeleton the student starts with. Use comments for placeholders.",
+  "test_cases": [
+    {{"name": "Descriptive test name", "assert": "{{assertion_code}}"}}
+  ],
+  "solution": "A correct reference implementation that passes all test cases.",
+  "hints": ["Helpful hint 1", "Helpful hint 2"]
+}}
+
+Rules:
+- Generate 3-5 test cases covering: basic functionality, edge cases, error handling (if applicable)
+- Each assertion must be a SINGLE line of code
+- Assertions must be DETERMINISTIC (same input always produces same output)
+- The solution must ACTUALLY pass all test cases — verify mentally
+- Difficulty should match what was taught — do NOT go beyond the section content
+- Use {assertion_syntax} for assertions
+- CRITICAL: Code runs as a plain synchronous script at module level. NEVER use top-level `await`. For async Python code, define an async main() and call it with `asyncio.run(main())`. All testable functions must be synchronous or wrapped via `asyncio.run()`.
+
+For the template field, provide minimal skeleton code with clear TODO markers.
+For the hints field, provide 2-3 constructive hints that guide the student toward the solution.
+Make sure the solution field contains the actual implementation code, not just a description.

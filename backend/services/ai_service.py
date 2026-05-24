@@ -1,5 +1,6 @@
 import json
 import platform
+import re
 import time
 from config import AI_API_KEY_DEFAULT, AI_BASE_URL_DEFAULT, AI_MODEL_DEFAULT, \
     PROMPTS_DIR, AI_GENERATION_TEMPERATURE
@@ -168,4 +169,91 @@ async def generate_lesson_async(topic_title: str, language_name: str, section_ti
         elapsed = time.perf_counter() - start
         logger.exception("Lesson generation async failed for '%s/%s' (%.2fs)",
                          section_title, lesson_title, elapsed)
+        raise
+
+
+def _assertion_syntax_for(language_name: str) -> str:
+    """Return language-specific assertion syntax guide for the AI prompt."""
+    guides = {
+        "python": "Use Python `assert` statements, e.g. `assert add(1, 2) == 3`",
+        "javascript": "Use `console.assert()` expressions, e.g. `console.assert(add(1, 2) === 3)`",
+        "typescript": "Use `console.assert()` expressions, e.g. `console.assert(add(1, 2) === 3)`",
+        "c": "Use C expressions (will be wrapped in CHECK macro), e.g. `add(1, 2) == 3`",
+        "cpp": "Use C++ expressions (will be wrapped in CHECK macro), e.g. `add(1, 2) == 3`",
+        "bash": 'Use __test__ calls, e.g. `__test__ "1+2" "3" add 1 2`',
+    }
+    return guides.get(language_name, "Use assert statements")
+
+
+def _parse_exercise_json(text: str) -> dict:
+    """Parse AI-generated JSON with tolerance for common formatting issues.
+
+    Handles:
+    - Invalid JSON escape sequences (\\w, \\s, Windows paths, etc.)
+    - Trailing commas before closing brackets/braces
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Fix invalid escape sequences: backslash not followed by a valid JSON escape
+    # Valid JSON escapes: \"  \\  \/  \b  \f  \n  \r  \t  \uXXXX
+    fixed = re.sub(
+        r'\\(?![\\"/bfnrt]|u[0-9A-Fa-f]{4})',
+        r'\\\\',
+        text,
+    )
+
+    # Fix trailing commas: ,]  ,}
+    fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
+
+    return json.loads(fixed)
+
+
+async def generate_exercise_async(
+    topic_title: str,
+    language_name: str,
+    section_title: str,
+    knowledge_description: str,
+    content_language: str = "zh",
+) -> dict:
+    """Generate a coding exercise via AI. Returns parsed JSON dict."""
+    content_lang_name = _lang_name(content_language)
+    logger.info(
+        "Generating exercise for '%s/%s' (%s) in %s",
+        section_title, topic_title, language_name, content_language,
+    )
+    start = time.perf_counter()
+    try:
+        prompt = _load_prompt("generate_exercise.txt").format(
+            language_name=language_name,
+            topic_title=topic_title,
+            section_title=section_title,
+            knowledge_description=knowledge_description,
+            content_language=content_lang_name,
+            platform_info=get_platform_info(),
+            assertion_syntax=_assertion_syntax_for(language_name),
+        )
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"Generate a coding exercise for section: {section_title}"},
+        ]
+        result = await _provider.chat_completion_async(
+            model=get_model(),
+            messages=messages,
+            temperature=AI_GENERATION_TEMPERATURE,
+        )
+        # Strip markdown code fences if present
+        result = result.strip()
+        if result.startswith("```"):
+            lines = result.split("\n")
+            result = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        parsed = _parse_exercise_json(result)
+        elapsed = time.perf_counter() - start
+        logger.info("Exercise generated: %d test cases (%.2fs)", len(parsed.get("test_cases", [])), elapsed)
+        return parsed
+    except Exception:
+        elapsed = time.perf_counter() - start
+        logger.exception("Exercise generation failed for '%s' (%.2fs)", section_title, elapsed)
         raise

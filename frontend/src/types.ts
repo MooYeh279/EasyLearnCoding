@@ -105,3 +105,28 @@ export interface EnvState {
   ready: boolean;
   os: 'win' | 'linux' | 'mac';
 }
+
+export interface TestResult {
+  name: string;
+  passed: boolean;
+  error?: string;
+}
+
+export interface ExerciseRunResponse {
+  results: TestResult[];
+  all_passed: boolean;
+  error?: string;
+  duration_ms: number;
+  raw_output?: string;
+}
+
+export interface Exercise {
+  id: number;
+  question: string;
+  template: string;
+  test_cases: string;
+  knowledge_tags: string[];
+  hints: string[];
+  section_id: number | null;
+  type: 'section' | 'topic';
+}

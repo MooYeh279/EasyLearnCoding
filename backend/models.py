@@ -56,6 +56,7 @@ class Topic(Base):
     course = relationship("Course", back_populates="topics")
     sections = relationship("Section", back_populates="topic", cascade="all, delete-orphan")
     outline = relationship("TopicOutline", back_populates="topic", uselist=False, cascade="all, delete-orphan")
+    exercises = relationship("Exercise", back_populates="topic")
 
 
 class TopicOutline(Base):
@@ -75,6 +76,7 @@ class Section(Base):
     order = Column(Integer, nullable=False)
     topic = relationship("Topic", back_populates="sections")
     lessons = relationship("Lesson", back_populates="section", cascade="all, delete-orphan")
+    exercises = relationship("Exercise", back_populates="section", cascade="all, delete-orphan")
 
 
 class Lesson(Base):
@@ -104,12 +106,20 @@ class CodeBlock(Base):
 class Exercise(Base):
     __tablename__ = "exercises"
     id = Column(Integer, primary_key=True, index=True)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=False)
+    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=True)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=True)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=True)
+    type = Column(String(20), default="section", nullable=False)  # "section" | "topic"
     question = Column(Text, nullable=False)
     template = Column(Text, default="")
     test_cases = Column(Text, default="")
     solution = Column(Text, default="")
+    language = Column(String(20), default="python", nullable=False)
+    knowledge_tags = Column(JSON, default=list)
+    hints = Column(JSON, default=list)
     lesson = relationship("Lesson", back_populates="exercises")
+    section = relationship("Section", back_populates="exercises")
+    topic = relationship("Topic", back_populates="exercises")
 
 
 class AppSetting(Base):
