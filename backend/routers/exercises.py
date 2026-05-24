@@ -83,6 +83,8 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
             detail={
                 "message": "Generated exercise failed validation",
                 "failed_cases": failed_cases,
+                "validation_error": validation.get("error", ""),
+                "all_passed": validation.get("all_passed"),
             },
         )
 
@@ -145,6 +147,8 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
             detail={
                 "message": "Generated exercise failed validation",
                 "failed_cases": failed_cases,
+                "validation_error": validation.get("error", ""),
+                "all_passed": validation.get("all_passed"),
             },
         )
 

@@ -10,6 +10,24 @@ from logger import get_logger
 logger = get_logger("exercise")
 
 
+def _python_assert_body(assertion: str) -> str:
+    """Convert a multi-statement assertion string to Python def-body lines.
+
+    Replaces bare ``assert expr`` with ``__assert__(expr)`` and indents
+    each line so the result can be pasted inside a ``def …():`` block.
+    """
+    lines: list[str] = []
+    for line in assertion.split(";"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("assert "):
+            lines.append(f"    __assert__({stripped[7:]})")
+        else:
+            lines.append(f"    {stripped}")
+    return "\n".join(lines)
+
+
 def build_exercise_script(language: str, user_code: str, test_cases: list[dict]) -> str | None:
     """Build a complete runnable script from user code + test assertions.
 
@@ -21,20 +39,27 @@ def build_exercise_script(language: str, user_code: str, test_cases: list[dict])
 
     # Convert test case assertions into harness-specific test calls
     test_lines: list[str] = []
+    test_fn_counter = 0
     for tc in test_cases:
         name = tc["name"]
         # Escape double-quotes so they don't break generated string literals
         escaped_name = name.replace("\\", "\\\\").replace('"', '\\"')
         assertion = tc["assert"]
         if language == "python":
-            # 'assert' is a statement, not usable in lambda bodies.
-            # Strip the 'assert ' prefix and use the harness-level __assert__
-            # helper which raises AssertionError when the expression is False.
+            # 'assert' is a statement in Python and cannot appear inside a
+            # lambda body.  Two cases:
+            #   1. Simple: "assert expr"            → lambda: __assert__(expr)
+            #   2. Complex: setup + assert expr     → def wrapper(): … setup … __assert__(expr)
             if assertion.startswith("assert "):
                 expr = assertion[7:]
                 test_lines.append(f'__test__("{escaped_name}", lambda: __assert__({expr}))')
             else:
-                test_lines.append(f'__test__("{escaped_name}", lambda: {assertion})')
+                # Multi-statement: wrap in a local def so the harness can call it
+                fn_name = f"__test_fn_{test_fn_counter}"
+                test_fn_counter += 1
+                body = _python_assert_body(assertion)
+                test_lines.append(f"def {fn_name}():\n{body}")
+                test_lines.append(f'__test__("{escaped_name}", {fn_name})')
         elif language in ("javascript", "typescript"):
             test_lines.append(f'__test__("{escaped_name}", () => {{ {assertion} }})')
         elif language in ("c", "cpp"):
@@ -215,8 +240,16 @@ def validate_exercise(language: str, solution: str, test_cases: list[dict]) -> d
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         output = (result.stdout or "") + (result.stderr or "")
-        return parse_test_results(output, duration_ms)
+        parsed = parse_test_results(output, duration_ms)
+        if not parsed.get("results") and not parsed.get("all_passed"):
+            logger.warning(
+                "Validation produced no results. rc=%d stdout=%s stderr=%s",
+                result.returncode, result.stdout[-300:] if result.stdout else "",
+                result.stderr[-300:] if result.stderr else "",
+            )
+        return parsed
     except subprocess.TimeoutExpired:
         return {"results": [], "all_passed": False, "error": "Execution timed out (15s)"}
     except Exception as e:
+        logger.exception("Validation exception: %s", e)
         return {"results": [], "all_passed": False, "error": str(e)}

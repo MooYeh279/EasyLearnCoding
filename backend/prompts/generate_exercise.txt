@@ -18,7 +18,7 @@ Output ONLY valid JSON (no markdown wrapping, no code fences). The JSON must hav
   "knowledge_tags": ["tag1", "tag2"],
   "template": "Code skeleton the student starts with. Use comments for placeholders.",
   "test_cases": [
-    {{"name": "Descriptive test name", "assert": "{assertion_code}"}}
+    {{"name": "Descriptive test name", "assert": "{{assertion_code}}"}}
   ],
   "solution": "A correct reference implementation that passes all test cases.",
   "hints": ["Helpful hint 1", "Helpful hint 2"]

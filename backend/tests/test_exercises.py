@@ -3,6 +3,24 @@ import json
 from services.exercise_service import build_exercise_script, parse_test_results
 
 
+def test_generate_exercise_prompt_formats_all_languages():
+    """Regression: prompt template must format without KeyError for every language."""
+    from services.ai_service import _load_prompt, _assertion_syntax_for, get_platform_info
+
+    for lang in ["python", "javascript", "typescript", "c", "cpp", "bash"]:
+        prompt = _load_prompt("generate_exercise.txt").format(
+            language_name=lang,
+            topic_title="Test",
+            section_title="Test",
+            knowledge_description="test",
+            content_language="Chinese",
+            platform_info=get_platform_info(),
+            assertion_syntax=_assertion_syntax_for(lang),
+        )
+        assert "{assertion_code}" in prompt
+        assert _assertion_syntax_for(lang) in prompt
+
+
 def test_build_python_script():
     test_cases = [
         {"name": "1+1", "assert": "assert add(1, 1) == 2"},
