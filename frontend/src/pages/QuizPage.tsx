@@ -42,8 +42,12 @@ export default function QuizPage() {
     try {
       const result = await api.runExercise(Number(exerciseId), code);
       setTestResult(result);
+      if (result.error && result.results.length === 0) {
+        message.warning(result.error);
+      }
     } catch (err: any) {
-      message.error(err?.message || 'Run failed');
+      const detail = err?.detail || err?.message || 'Run failed';
+      setTestResult({ results: [], all_passed: false, error: typeof detail === 'string' ? detail : JSON.stringify(detail), duration_ms: 0 });
     } finally {
       setRunning(false);
     }
@@ -93,6 +97,7 @@ export default function QuizPage() {
         {/* Right panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <TestRunner
+            exerciseId={Number(exerciseId)}
             template={exercise.template}
             running={running}
             testResult={testResult}

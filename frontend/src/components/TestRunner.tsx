@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Button, Spin, Tooltip } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useContentLang } from '../context/LangContext';
@@ -6,7 +6,23 @@ import type { ExerciseRunResponse } from '../types';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react').then(m => ({ default: m.Editor })));
 
+const CODE_STORE_PREFIX = 'exercise_code_';
+
+function loadCode(exerciseId: number | undefined, template: string): string {
+  if (!exerciseId) return template;
+  try {
+    const saved = localStorage.getItem(CODE_STORE_PREFIX + exerciseId);
+    return saved ?? template;
+  } catch { return template; }
+}
+
+function saveCode(exerciseId: number | undefined, code: string) {
+  if (!exerciseId) return;
+  try { localStorage.setItem(CODE_STORE_PREFIX + exerciseId, code); } catch { /* quota exceeded */ }
+}
+
 interface Props {
+  exerciseId?: number;
   template: string;
   running: boolean;
   testResult: ExerciseRunResponse | null;
@@ -28,9 +44,19 @@ const C = {
   radiusSm: 8,
 };
 
-export default function TestRunner({ template, running, testResult, onRun }: Props) {
+export default function TestRunner({ exerciseId, template, running, testResult, onRun }: Props) {
   const { t } = useContentLang();
-  const [code, setCode] = useState(template);
+  const [code, setCode] = useState(() => loadCode(exerciseId, template));
+
+  // Persist code changes to localStorage (debounced by React batching)
+  useEffect(() => {
+    saveCode(exerciseId, code);
+  }, [code, exerciseId]);
+
+  // Reload code when exercise changes
+  useEffect(() => {
+    setCode(loadCode(exerciseId, template));
+  }, [exerciseId, template]);
 
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
     editor.addAction({
@@ -42,6 +68,8 @@ export default function TestRunner({ template, running, testResult, onRun }: Pro
   }, [onRun]);
 
   const handleReset = () => setCode(template);
+
+  const hasResults = testResult && (testResult.results.length > 0 || testResult.error);
 
   const passedCount = testResult?.results?.filter(r => r.passed).length ?? 0;
   const totalCount = testResult?.results?.length ?? 0;
@@ -119,10 +147,10 @@ export default function TestRunner({ template, running, testResult, onRun }: Pro
       </div>
 
       {/* Test results panel */}
-      {testResult && (
+      {hasResults && (
         <div style={{
           borderTop: `1px solid ${C.border}`, background: '#fff',
-          maxHeight: 220, overflowY: 'auto',
+          maxHeight: 260, overflowY: 'auto',
         }}>
           {/* Results header */}
           <div style={{
@@ -132,9 +160,11 @@ export default function TestRunner({ template, running, testResult, onRun }: Pro
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{t('exercise.testResults')}</span>
-              <span style={{ fontSize: 12, color: C.textMuted }}>
-                {t('exercise.testCases', { n: totalCount })}
-              </span>
+              {totalCount > 0 && (
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  {t('exercise.testCases', { n: totalCount })}
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               {passedCount > 0 && (
@@ -149,7 +179,7 @@ export default function TestRunner({ template, running, testResult, onRun }: Pro
                   {t('exercise.failed', { n: totalCount - passedCount })}
                 </span>
               )}
-              {testResult.all_passed && (
+              {testResult!.all_passed && totalCount > 0 && (
                 <span style={{ color: C.success, fontWeight: 500, fontSize: 13 }}>
                   {t('exercise.allPassed')}
                 </span>
@@ -157,35 +187,64 @@ export default function TestRunner({ template, running, testResult, onRun }: Pro
             </div>
           </div>
 
-          {/* Test cases */}
-          <div style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 12, lineHeight: 2 }}>
-            {testResult.results.map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '4px 0' }}>
-                <span style={{
-                  width: 18, height: 18, borderRadius: '50%',
-                  background: r.passed ? C.success : C.error,
-                  color: '#fff', fontSize: 10, fontWeight: 700,
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0, marginTop: 2,
-                }}>
-                  {r.passed ? '✓' : '✗'}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <span style={{ color: C.text, fontWeight: 500 }}>{r.name}</span>
-                  {!r.passed && r.error && (
-                    <div style={{
-                      marginTop: 6, padding: '8px 12px',
-                      background: C.errorBg, borderLeft: `3px solid ${C.error}`,
-                      borderRadius: `0 ${C.radiusSm}px ${C.radiusSm}px 0`,
-                      fontFamily: 'monospace', fontSize: 12, color: C.textSec,
-                    }}>
-                      {r.error}
-                    </div>
-                  )}
-                </div>
+          {/* Top-level error (e.g. syntax error, no results found) */}
+          {testResult!.error && (
+            <div style={{ padding: '10px 16px' }}>
+              <div style={{
+                padding: '10px 14px',
+                background: C.errorBg, borderLeft: `3px solid ${C.error}`,
+                borderRadius: `0 ${C.radiusSm}px ${C.radiusSm}px 0`,
+                fontFamily: 'monospace', fontSize: 12, color: C.textSec,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              }}>
+                {testResult!.error}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
+
+          {/* Raw output for debugging */}
+          {testResult!.raw_output && (
+            <div style={{ padding: '0 16px 10px' }}>
+              <details style={{ fontSize: 12 }}>
+                <summary style={{ color: C.textMuted, cursor: 'pointer' }}>raw output</summary>
+                <pre style={{
+                  marginTop: 6, padding: '8px 10px',
+                  background: '#f5f5f5', borderRadius: C.radiusSm,
+                  fontFamily: 'monospace', fontSize: 11, color: C.textSec,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 120, overflowY: 'auto',
+                }}>{testResult!.raw_output}</pre>
+              </details>
+            </div>
+          )}
+
+          {/* Individual test cases */}
+          {testResult!.results.map((r, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '4px 16px' }}>
+              <span style={{
+                width: 18, height: 18, borderRadius: '50%',
+                background: r.passed ? C.success : C.error,
+                color: '#fff', fontSize: 10, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, marginTop: 2,
+              }}>
+                {r.passed ? '✓' : '✗'}
+              </span>
+              <div style={{ flex: 1 }}>
+                <span style={{ color: C.text, fontWeight: 500 }}>{r.name}</span>
+                {!r.passed && r.error && (
+                  <div style={{
+                    marginTop: 6, padding: '8px 12px',
+                    background: C.errorBg, borderLeft: `3px solid ${C.error}`,
+                    borderRadius: `0 ${C.radiusSm}px ${C.radiusSm}px 0`,
+                    fontFamily: 'monospace', fontSize: 12, color: C.textSec,
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                  }}>
+                    {r.error}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </>
