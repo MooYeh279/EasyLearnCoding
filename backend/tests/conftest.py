@@ -24,6 +24,11 @@ if "env_config" not in [c["name"] for c in insp.get_columns("languages")]:
         conn.execute(sqlalchemy.text("ALTER TABLE languages ADD COLUMN env_config JSON"))
         conn.commit()
 
+if "topic_id" not in [c["name"] for c in insp.get_columns("exercises")]:
+    with engine.connect() as conn:
+        conn.execute(sqlalchemy.text("ALTER TABLE exercises ADD COLUMN topic_id INTEGER REFERENCES topics(id)"))
+        conn.commit()
+
 def override_get_db():
     db = TestingSessionLocal()
     try:

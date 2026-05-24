@@ -1,5 +1,6 @@
 import json
 import platform
+import re
 import time
 from config import AI_API_KEY_DEFAULT, AI_BASE_URL_DEFAULT, AI_MODEL_DEFAULT, \
     PROMPTS_DIR, AI_GENERATION_TEMPERATURE
@@ -184,6 +185,32 @@ def _assertion_syntax_for(language_name: str) -> str:
     return guides.get(language_name, "Use assert statements")
 
 
+def _parse_exercise_json(text: str) -> dict:
+    """Parse AI-generated JSON with tolerance for common formatting issues.
+
+    Handles:
+    - Invalid JSON escape sequences (\\w, \\s, Windows paths, etc.)
+    - Trailing commas before closing brackets/braces
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Fix invalid escape sequences: backslash not followed by a valid JSON escape
+    # Valid JSON escapes: \"  \\  \/  \b  \f  \n  \r  \t  \uXXXX
+    fixed = re.sub(
+        r'\\(?![\\"/bfnrt]|u[0-9A-Fa-f]{4})',
+        r'\\\\',
+        text,
+    )
+
+    # Fix trailing commas: ,]  ,}
+    fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
+
+    return json.loads(fixed)
+
+
 async def generate_exercise_async(
     topic_title: str,
     language_name: str,
@@ -222,7 +249,7 @@ async def generate_exercise_async(
         if result.startswith("```"):
             lines = result.split("\n")
             result = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        parsed = json.loads(result)
+        parsed = _parse_exercise_json(result)
         elapsed = time.perf_counter() - start
         logger.info("Exercise generated: %d test cases (%.2fs)", len(parsed.get("test_cases", [])), elapsed)
         return parsed

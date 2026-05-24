@@ -15,6 +15,21 @@ logger = get_logger("exercises")
 router = APIRouter(prefix="/api", tags=["exercises"])
 
 
+def _build_knowledge_summary(lessons, max_chars_per_lesson: int = 500) -> str:
+    """Build a knowledge description from lesson content, not just titles."""
+    parts = []
+    for l in lessons:
+        content = (l.content or "").strip()
+        if content:
+            preview = content[:max_chars_per_lesson]
+            if len(content) > max_chars_per_lesson:
+                preview += "..."
+            parts.append(f"# {l.title}\n{preview}")
+        else:
+            parts.append(f"# {l.title} (no content yet)")
+    return "\n\n".join(parts)
+
+
 class RunExerciseRequest(BaseModel):
     code: str
 
@@ -55,7 +70,7 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
 
     language_name = topic.course.language.name if topic.course.language else "python"
     lessons = db.query(Lesson).filter(Lesson.section_id == section_id).all()
-    knowledge_description = ", ".join(l.title for l in lessons)
+    knowledge_description = _build_knowledge_summary(lessons)
 
     # 1. AI generates the exercise
     try:
@@ -66,9 +81,10 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
             knowledge_description=knowledge_description,
         )
     except Exception as e:
+        logger.warning("Section exercise generation failed for section %s: %s", section_id, e)
         raise HTTPException(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"AI generation failed: {str(e)}",
+            detail="AI generation failed",
         )
 
     # 2. Validate with reference solution
@@ -121,7 +137,9 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
 
     language_name = topic.course.language.name if topic.course.language else "python"
     sections = db.query(Section).filter(Section.topic_id == topic_id).all()
-    knowledge_description = ", ".join(s.title for s in sections)
+    section_ids = [s.id for s in sections]
+    lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
+    knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=300)
 
     try:
         exercise_data = await generate_exercise_async(
@@ -131,9 +149,10 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
             knowledge_description=knowledge_description,
         )
     except Exception as e:
+        logger.warning("Topic exercise generation failed for topic %s: %s", topic_id, e)
         raise HTTPException(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"AI generation failed: {str(e)}",
+            detail="AI generation failed",
         )
 
     test_cases = exercise_data.get("test_cases", [])
@@ -161,6 +180,7 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
 
     exercise = Exercise(
         type="topic",
+        topic_id=topic_id,
         language=language_name,
         question=question,
         template=exercise_data.get("template", ""),
@@ -223,6 +243,6 @@ def get_topic_exercises(topic_id: int, db: Session = Depends(get_db)):
         s.id for s in db.query(Section).filter(Section.topic_id == topic_id).all()
     ]
     exercises = db.query(Exercise).filter(
-        Exercise.section_id.in_(section_ids) | (Exercise.type == "topic")
+        Exercise.section_id.in_(section_ids) | (Exercise.topic_id == topic_id)
     ).all()
     return [_ex_to_response(e) for e in exercises]

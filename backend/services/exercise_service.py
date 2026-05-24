@@ -134,7 +134,7 @@ def parse_test_results(output: str, duration_ms: int) -> dict:
             results = parsed.get("results", [])
         # Filter out empty dicts (C/C++/Bash sentinels)
         results = [r for r in results if r and r.get("name")]
-        all_passed = all(r.get("passed", False) for r in results)
+        all_passed = len(results) > 0 and all(r.get("passed", False) for r in results)
         return {
             "results": results,
             "all_passed": all_passed,

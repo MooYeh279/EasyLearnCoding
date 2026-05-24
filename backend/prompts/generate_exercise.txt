@@ -10,6 +10,14 @@ Target knowledge: {knowledge_description}
 
 Content language: {content_language}
 
+IMPORTANT: ALL user-facing text MUST be written in {content_language}. This includes:
+- question (problem description)
+- test_cases[].name (test case names)
+- hints (all hint strings)
+- knowledge_tags (tag names)
+
+Only code identifiers, assertion expressions, and Python/JS/C/etc keywords are in English. Every word the student reads must be in {content_language}.
+
 Generate a coding exercise that tests whether the student has mastered the section's key concepts.
 Output ONLY valid JSON (no markdown wrapping, no code fences). The JSON must have this structure:
 
@@ -31,6 +39,7 @@ Rules:
 - The solution must ACTUALLY pass all test cases — verify mentally
 - Difficulty should match what was taught — do NOT go beyond the section content
 - Use {assertion_syntax} for assertions
+- CRITICAL: Code runs as a plain synchronous script at module level. NEVER use top-level `await`. For async Python code, define an async main() and call it with `asyncio.run(main())`. All testable functions must be synchronous or wrapped via `asyncio.run()`.
 
 For the template field, provide minimal skeleton code with clear TODO markers.
 For the hints field, provide 2-3 constructive hints that guide the student toward the solution.

@@ -8,7 +8,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+    const raw = err.detail;
+    const detail = typeof raw === 'object' ? (raw as any).message || JSON.stringify(raw) : raw;
+    throw new Error(String(detail || `HTTP ${res.status}`));
   }
   return res.json();
 }

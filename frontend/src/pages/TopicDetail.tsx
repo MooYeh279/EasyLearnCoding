@@ -279,8 +279,7 @@ export default function TopicDetail() {
       }));
       message.success(t('exercise.generateSuccess'));
     } catch (err: any) {
-      const detail = err?.message;
-      message.error(typeof detail === 'string' ? detail : t('exercise.generateFail'));
+      message.error(t('exercise.generateFail'));
     } finally {
       setGeneratingExercise(null);
     }
@@ -294,8 +293,7 @@ export default function TopicDetail() {
       setTopicExercise(exercise);
       message.success(t('exercise.generateSuccess'));
     } catch (err: any) {
-      const detail = err?.message;
-      message.error(typeof detail === 'string' ? detail : t('exercise.generateFail'));
+      message.error(t('exercise.generateFail'));
     } finally {
       setGeneratingTopicExercise(false);
     }
