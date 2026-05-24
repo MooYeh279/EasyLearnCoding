@@ -24,6 +24,7 @@ function saveCode(exerciseId: number | undefined, code: string) {
 interface Props {
   exerciseId?: number;
   template: string;
+  language: string;
   running: boolean;
   testResult: ExerciseRunResponse | null;
   onRun: (code: string) => void;
@@ -44,7 +45,7 @@ const C = {
   radiusSm: 8,
 };
 
-export default function TestRunner({ exerciseId, template, running, testResult, onRun }: Props) {
+export default function TestRunner({ exerciseId, template, language, running, testResult, onRun }: Props) {
   const { t } = useContentLang();
   const [code, setCode] = useState(() => loadCode(exerciseId, template));
 
@@ -101,7 +102,7 @@ export default function TestRunner({ exerciseId, template, running, testResult, 
         }>
           <MonacoEditor
             height="100%"
-            language="python"
+            language={language}
             value={code}
             onChange={(val: any) => { if (val != null) setCode(val); }}
             onMount={handleEditorMount}

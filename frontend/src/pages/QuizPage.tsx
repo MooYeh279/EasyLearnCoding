@@ -105,6 +105,7 @@ export default function QuizPage() {
           <TestRunner
             exerciseId={Number(exerciseId)}
             template={exercise.template}
+            language={exercise.language}
             running={running}
             testResult={testResult}
             onRun={handleRun}

@@ -10,37 +10,71 @@ Target knowledge: {knowledge_description}
 
 Content language: {content_language}
 
-IMPORTANT: ALL user-facing text MUST be written in {content_language}. This includes:
-- question (problem description)
-- test_cases[].name (test case names)
-- hints (all hint strings)
-- knowledge_tags (tag names)
+ALL user-facing text MUST be in {content_language}: question, test_cases[].name, hints, knowledge_tags.
+Code identifiers, assertion expressions, and language keywords remain in English.
 
-Only code identifiers, assertion expressions, and Python/JS/C/etc keywords are in English. Every word the student reads must be in {content_language}.
+---- THE SINGLE MOST IMPORTANT RULE ----
 
-Generate a coding exercise that tests whether the student has mastered the section's key concepts.
-Output ONLY valid JSON (no markdown wrapping, no code fences). The JSON must have this structure:
+This exercise is ONE coherent problem. Every field describes the SAME problem:
+  question  → describes the problem in words
+  template  → starter code the student fills in
+  test_cases → tests that verify the student's code
+  solution  → a correct reference implementation
+  hints     → guides the student toward the answer
+
+Pick ONE clear concept from the target knowledge. Use the SAME function/class names in ALL fields.
+
+---- WORKFLOW (follow EXACTLY in this order) ----
+
+STEP 1 — Write the SOLUTION.
+  This is the reference answer. Write complete, correct {language_name} code.
+  Mentally run it with sample inputs to confirm it works.
+  This is the source of truth — everything else derives from it.
+
+STEP 2 — Derive TEST_CASES from your solution.
+  For each test case, mentally trace through your solution with the test input
+  and record the ACTUAL output your solution produces. That is the expected value.
+  DO NOT guess expected values — compute them from your solution.
+  If your solution returns [0, 3, 8], the test must expect [0, 3, 8].
+  Produce 3-5 cases: basic usage, edge cases, error handling.
+  Assertion format for each test_cases[].assert:
+    {assertion_syntax}
+
+STEP 3 — Derive TEMPLATE from your solution.
+  Take your solution code. Remove all function bodies. Replace with TODO comments.
+  Keep the EXACT same function names, parameters, and return types.
+  Example of what a template looks like:
+    {template_example}
+  The template is starter code for the student — NOT test code, NOT the solution.
+
+STEP 4 — Write the QUESTION.
+  Describe the problem clearly in {content_language}. Include the function/class
+  names and signatures from your solution. Give 1-2 input/output examples.
+  The examples MUST use values from your test_cases so everything is consistent.
+
+STEP 5 — Write HINTS.
+  2-3 constructive hints in {content_language} that nudge toward the solution.
+
+STEP 6 — FINAL VERIFICATION. Before outputting, check:
+  1. Solution is valid {language_name} code that actually runs
+  2. For each test case: mental-trace the solution → output matches the assertion
+  3. Template function names match solution function names EXACTLY
+  4. Question uses the SAME function names as template and solution
+  5. All code is in {language_name} — NOT a different language
+
+If ANY check fails → go back and fix it NOW. Do not output broken exercises.
+
+---- OUTPUT FORMAT ----
+
+Output ONLY valid JSON (no markdown wrapping, no code fences):
 
 {{
-  "question": "Markdown description of the problem. Include:\\n- Background context referencing the section content\\n- Clear requirements\\n- 1-2 examples showing expected behavior",
+  "question": "...",
   "knowledge_tags": ["tag1", "tag2"],
-  "template": "Code skeleton the student starts with. Use comments for placeholders.",
+  "template": "...",
   "test_cases": [
-    {{"name": "Descriptive test name", "assert": "{{assertion_code}}"}}
+    {{"name": "Descriptive name", "assert": "{{assertion_code}}"}}
   ],
-  "solution": "A correct reference implementation that passes all test cases.",
-  "hints": ["Helpful hint 1", "Helpful hint 2"]
+  "solution": "...",
+  "hints": ["hint1", "hint2"]
 }}
-
-Rules:
-- Generate 3-5 test cases covering: basic functionality, edge cases, error handling (if applicable)
-- Each assertion must be a SINGLE line of code
-- Assertions must be DETERMINISTIC (same input always produces same output)
-- The solution must ACTUALLY pass all test cases — verify mentally
-- Difficulty should match what was taught — do NOT go beyond the section content
-- Use {assertion_syntax} for assertions
-- CRITICAL: Code runs as a plain synchronous script at module level. NEVER use top-level `await`. For async Python code, define an async main() and call it with `asyncio.run(main())`. All testable functions must be synchronous or wrapped via `asyncio.run()`.
-
-For the template field, provide minimal skeleton code with clear TODO markers.
-For the hints field, provide 2-3 constructive hints that guide the student toward the solution.
-Make sure the solution field contains the actual implementation code, not just a description.

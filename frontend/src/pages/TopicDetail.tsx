@@ -104,10 +104,33 @@ export default function TopicDetail() {
   const [editLessonTitle, setEditLessonTitle] = useState('');
   const [dragSecIdx, setDragSecIdx] = useState<number | null>(null);
   const [dragLesKey, setDragLesKey] = useState<string | null>(null);
-  const [generatingExercise, setGeneratingExercise] = useState<number | null>(null);
+  const [generatingExercise, setGeneratingExercise] = useState<Set<number>>(new Set());
   const [sectionExercises, setSectionExercises] = useState<Record<number, Exercise[]>>({});
   const [topicExercise, setTopicExercise] = useState<Exercise | null>(null);
   const [generatingTopicExercise, setGeneratingTopicExercise] = useState(false);
+
+  // Restore in-progress exercise generation state from sessionStorage on mount
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const pending: number[] = JSON.parse(sessionStorage.getItem(`gen_exercise_${id}`) || '[]');
+      if (pending.length > 0) setGeneratingExercise(new Set(pending));
+    } catch { /* ignore corrupt data */ }
+    const pendingTopic = sessionStorage.getItem(`gen_topic_exercise_${id}`);
+    if (pendingTopic === 'true') setGeneratingTopicExercise(true);
+    // Safety timeout: clear stuck loading states after 60s
+    const hasPending = sessionStorage.getItem(`gen_exercise_${id}`) !== null
+      || pendingTopic === 'true';
+    if (hasPending) {
+      const timer = setTimeout(() => {
+        setGeneratingExercise(new Set());
+        setGeneratingTopicExercise(false);
+        sessionStorage.removeItem(`gen_exercise_${id}`);
+        sessionStorage.removeItem(`gen_topic_exercise_${id}`);
+      }, 60_000);
+      return () => clearTimeout(timer);
+    }
+  }, [id]);
 
   // -- Drag and drop handlers --
 
@@ -284,11 +307,68 @@ export default function TopicDetail() {
       // Pick the first topic-level exercise
       const topicEx = topicResults.find(e => e.type === 'topic');
       if (topicEx) setTopicExercise(topicEx);
+      // Clear generating state if exercise was created while user was away
+      try {
+        const pending: number[] = JSON.parse(sessionStorage.getItem(`gen_exercise_${id}`) || '[]');
+        const fulfilled = pending.filter(sid => map[sid]?.length > 0);
+        if (fulfilled.length > 0) {
+          setGeneratingExercise((prev) => {
+            const next = new Set(prev);
+            fulfilled.forEach(sid => next.delete(sid));
+            return next;
+          });
+          const remaining = pending.filter(sid => !fulfilled.includes(sid));
+          if (remaining.length > 0) {
+            sessionStorage.setItem(`gen_exercise_${id}`, JSON.stringify(remaining));
+          } else {
+            sessionStorage.removeItem(`gen_exercise_${id}`);
+          }
+        }
+        // Defensive: clear stale generating states not backed by sessionStorage
+        const pendingSet = new Set(pending);
+        setGeneratingExercise((prev) => {
+          if (prev.size === 0) return prev;
+          let changed = false;
+          const next = new Set(prev);
+          for (const sid of prev) {
+            if (!pendingSet.has(sid)) {
+              next.delete(sid);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      } catch { /* ignore */ }
+      if (sessionStorage.getItem(`gen_topic_exercise_${id}`) === 'true') {
+        if (topicEx) {
+          setGeneratingTopicExercise(false);
+          sessionStorage.removeItem(`gen_topic_exercise_${id}`);
+        }
+      } else {
+        setGeneratingTopicExercise(false);
+      }
     }).catch(() => {});
   }, [topic, id]);
 
   const handleGenerateExercise = async (sectionId: number) => {
-    setGeneratingExercise(sectionId);
+    setGeneratingExercise((prev) => new Set(prev).add(sectionId));
+    const stored: number[] = JSON.parse(sessionStorage.getItem(`gen_exercise_${id}`) || '[]');
+    stored.push(sectionId);
+    sessionStorage.setItem(`gen_exercise_${id}`, JSON.stringify(stored));
+    const _cleanup = () => {
+      setGeneratingExercise((prev) => {
+        const next = new Set(prev);
+        next.delete(sectionId);
+        return next;
+      });
+      const remaining: number[] = JSON.parse(sessionStorage.getItem(`gen_exercise_${id}`) || '[]');
+      const filtered = remaining.filter(sid => sid !== sectionId);
+      if (filtered.length > 0) {
+        sessionStorage.setItem(`gen_exercise_${id}`, JSON.stringify(filtered));
+      } else {
+        sessionStorage.removeItem(`gen_exercise_${id}`);
+      }
+    };
     try {
       const exercise = await api.generateSectionExercise(sectionId);
       setSectionExercises((prev) => ({
@@ -297,15 +377,15 @@ export default function TopicDetail() {
       }));
       message.success(t('exercise.generateSuccess'));
     } catch (err: any) {
-      message.error(t('exercise.generateFail'));
-    } finally {
-      setGeneratingExercise(null);
+      _cleanup();
+      message.error(err?.message || t('exercise.generateFail'));
     }
   };
 
   const handleGenerateTopicExercise = async () => {
     if (!id) return;
     setGeneratingTopicExercise(true);
+    sessionStorage.setItem(`gen_topic_exercise_${id}`, 'true');
     try {
       const exercise = await api.generateTopicExercise(Number(id));
       setTopicExercise(exercise);
@@ -314,6 +394,7 @@ export default function TopicDetail() {
       message.error(t('exercise.generateFail'));
     } finally {
       setGeneratingTopicExercise(false);
+      sessionStorage.removeItem(`gen_topic_exercise_${id}`);
     }
   };
 
@@ -757,11 +838,11 @@ export default function TopicDetail() {
                           size="small"
                           type="default"
                           icon={<ExperimentOutlined />}
-                          loading={generatingExercise === sectionId}
+                          loading={generatingExercise.has(sectionId)}
                           onClick={() => handleGenerateExercise(sectionId)}
                           style={{ fontSize: 12, borderRadius: DS.radiusXs }}
                         >
-                          {generatingExercise === sectionId ? t('exercise.generating') : t('exercise.generateBtn')}
+                          {generatingExercise.has(sectionId) ? t('exercise.generating') : t('exercise.generateBtn')}
                         </Button>
                       )
                     )}

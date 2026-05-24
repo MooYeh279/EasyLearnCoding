@@ -5,7 +5,10 @@ from services.exercise_service import build_exercise_script, parse_test_results
 
 def test_generate_exercise_prompt_formats_all_languages():
     """Regression: prompt template must format without KeyError for every language."""
-    from services.ai_service import _load_prompt, _assertion_syntax_for, get_platform_info
+    from services.ai_service import (
+        _load_prompt, _assertion_syntax_for,
+        _template_example_for, get_platform_info,
+    )
 
     for lang in ["python", "javascript", "typescript", "c", "cpp", "bash"]:
         prompt = _load_prompt("generate_exercise.txt").format(
@@ -16,6 +19,7 @@ def test_generate_exercise_prompt_formats_all_languages():
             content_language="Chinese",
             platform_info=get_platform_info(),
             assertion_syntax=_assertion_syntax_for(lang),
+            template_example=_template_example_for(lang),
         )
         assert "{assertion_code}" in prompt
         assert _assertion_syntax_for(lang) in prompt

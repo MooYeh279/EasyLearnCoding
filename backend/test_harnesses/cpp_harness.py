@@ -1,11 +1,12 @@
 CPP_HARNESS = """\
 #include <iostream>
 #include <string>
+#include <sstream>
 
 #define __TEST__(name, expr) do { \\
-    if (!_first_test) std::cout << ","; \\
-    if (expr) std::cout << "{\\"name\\":\\"" << name << "\\",\\"passed\\":true}"; \\
-    else std::cout << "{\\"name\\":\\"" << name << "\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}"; \\
+    if (!_first_test) _json_out << ","; \\
+    if (expr) _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":true}"; \\
+    else _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}"; \\
     _first_test = 0; \\
 } while(0)
 
@@ -13,9 +14,11 @@ __USER_CODE__
 
 int main() {
     int _first_test = 1;
-    std::cout << "{\\"results\\":[";
+    std::ostringstream _json_out;
+    _json_out << "{\\"results\\":[";
 __TEST_CASES__
-    std::cout << "]}";
+    _json_out << "]}";
+    std::cout << _json_out.str();
     return 0;
 }
 """
@@ -29,4 +32,9 @@ def build_cpp_script(user_code: str, test_cases: str) -> str:
         raise TypeError("test_cases must not be None")
     if not test_cases.strip():
         raise ValueError("test_cases must not be empty")
+    # Strip user-provided main() to prevent duplicate-main compilation errors
+    import re
+    user_code = re.sub(
+        r'\bint\s+main\s*\([^)]*\)\s*\{.*', '', user_code, flags=re.DOTALL
+    )
     return CPP_HARNESS.replace("__USER_CODE__", user_code).replace("__TEST_CASES__", test_cases)

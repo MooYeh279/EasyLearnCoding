@@ -1,5 +1,8 @@
 JAVASCRIPT_HARNESS = """\
 const __results__ = [];
+function __assert__(cond, msg) {
+    if (!cond) throw new Error(msg || "assertion failed");
+}
 function __test__(name, fn) {
     try { fn(); __results__.push({name, passed: true}); }
     catch(e) { __results__.push({name, passed: false, error: (e?.message ?? String(e)).split('\\n')[0]}); }

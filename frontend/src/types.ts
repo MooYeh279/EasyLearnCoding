@@ -129,4 +129,5 @@ export interface Exercise {
   hints: string[];
   section_id: number | null;
   type: 'section' | 'topic';
+  language: string;
 }

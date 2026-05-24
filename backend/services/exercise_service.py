@@ -63,7 +63,9 @@ def build_exercise_script(language: str, user_code: str, test_cases: list[dict])
         elif language in ("javascript", "typescript"):
             test_lines.append(f'__test__("{escaped_name}", () => {{ {assertion} }})')
         elif language in ("c", "cpp"):
-            test_lines.append(f'__TEST__("{escaped_name}", {assertion});')
+            # Wrap in () so commas inside brace-initializers like
+            # std::map<int,int>{{1,2},{3,4}} don't split the macro argument
+            test_lines.append(f'__TEST__("{escaped_name}", ({assertion}));')
         elif language == "bash":
             test_lines.append(assertion)  # assertion is already a __test__ call
 
@@ -151,90 +153,107 @@ def parse_test_results(output: str, duration_ms: int) -> dict:
         }
 
 
+def _resolve_lang_config(language: str) -> dict:
+    """Resolve language config, delegating to code_executor's implementation.
+
+    Returns a dict with env, shell, cmd, ext, compile_cmd, etc.
+    Matching the lesson code execution flow exactly.
+    """
+    try:
+        from routers.code_executor import _resolve_lang_config as _resolve
+        return _resolve(language)
+    except Exception:
+        return {}
+
+
 def validate_exercise(language: str, solution: str, test_cases: list[dict]) -> dict:
     """Run reference solution against test cases to validate the exercise.
 
     Returns the parsed results dict (same format as parse_test_results).
-    This is called during exercise generation to ensure the AI-generated
-    content is self-consistent before saving.
+    Uses the same language config resolution as code_executor for consistent
+    execution behavior (PATH, shell mode, compile commands, etc.).
     """
     script = build_exercise_script(language, solution, test_cases)
     if script is None:
         return {"results": [], "all_passed": False, "error": f"Unsupported language: {language}"}
 
+    config = _resolve_lang_config(language)
+    env = config.get("env", os.environ.copy())
+
     start = time.perf_counter()
+    tmp_path: str | None = None
+    bin_path: str | None = None
+
     try:
         if language == "python":
             result = subprocess.run(
                 ["python", "-c", script],
-                capture_output=True, text=True, timeout=15,
-                cwd=tempfile.gettempdir(),
+                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+                cwd=tempfile.gettempdir(), env=env,
             )
         elif language in ("javascript", "typescript"):
-            node_cmd = "tsx" if language == "typescript" else "node"
+            node_cmd = config.get("cmd", ["tsx"] if language == "typescript" else ["node"])
+            ext = config.get("ext", ".ts" if language == "typescript" else ".js")
+            use_shell = config.get("shell", False)
+            with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as f:
+                f.write(script)
+                tmp_path = f.name
+            if use_shell:
+                result = subprocess.run(
+                    f'{" ".join(node_cmd)} "{tmp_path}"',
+                    capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+                    cwd=tempfile.gettempdir(), env=env, shell=True,
+                )
+            else:
+                result = subprocess.run(
+                    [*node_cmd, tmp_path],
+                    capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+                    cwd=tempfile.gettempdir(), env=env,
+                )
+        elif language in ("c", "cpp"):
+            ext = config.get("ext", ".c" if language == "c" else ".cpp")
+            compile_cmd = list(config.get("compile_cmd", ["gcc"] if language == "c" else ["g++", "-std=c++17"]))
+            with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as f:
+                f.write(script)
+                tmp_path = f.name
+            bin_path = tmp_path + (".exe" if os.name == "nt" else ".out")
+            compile_result = subprocess.run(
+                [*compile_cmd, tmp_path, "-o", bin_path, "-w"],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+                env=env,
+            )
+            if compile_result.returncode != 0:
+                lang_label = "C" if language == "c" else "C++"
+                logger.warning("%s compilation failed: %s", lang_label, compile_result.stderr[-200:])
+                return {
+                    "results": [],
+                    "all_passed": False,
+                    "error": f"Compilation failed: {compile_result.stderr[-200:]}",
+                }
             result = subprocess.run(
-                [node_cmd, "-e", script],
-                capture_output=True, text=True, timeout=15,
+                [bin_path],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
                 cwd=tempfile.gettempdir(),
             )
-        elif language == "c":
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".c", delete=False) as f:
-                f.write(script)
-                c_path = f.name
-            bin_path = c_path + ".exe" if os.name == "nt" else c_path + ".out"
-            try:
-                compile_result = subprocess.run(
-                    ["gcc", c_path, "-o", bin_path, "-w"],
-                    capture_output=True, text=True, timeout=15,
-                )
-                if compile_result.returncode != 0:
-                    logger.warning("C compilation failed: %s", compile_result.stderr[-200:])
-                    return {
-                        "results": [],
-                        "all_passed": False,
-                        "error": f"Compilation failed: {compile_result.stderr[-200:]}",
-                    }
-                result = subprocess.run(
-                    [bin_path],
-                    capture_output=True, text=True, timeout=15,
-                    cwd=tempfile.gettempdir(),
-                )
-            finally:
-                os.unlink(c_path)
-                if os.path.exists(bin_path):
-                    os.unlink(bin_path)
-        elif language == "cpp":
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".cpp", delete=False) as f:
-                f.write(script)
-                cpp_path = f.name
-            bin_path = cpp_path + ".exe" if os.name == "nt" else cpp_path + ".out"
-            try:
-                compile_result = subprocess.run(
-                    ["g++", cpp_path, "-o", bin_path, "-w"],
-                    capture_output=True, text=True, timeout=15,
-                )
-                if compile_result.returncode != 0:
-                    logger.warning("C++ compilation failed: %s", compile_result.stderr[-200:])
-                    return {
-                        "results": [],
-                        "all_passed": False,
-                        "error": f"Compilation failed: {compile_result.stderr[-200:]}",
-                    }
-                result = subprocess.run(
-                    [bin_path],
-                    capture_output=True, text=True, timeout=15,
-                    cwd=tempfile.gettempdir(),
-                )
-            finally:
-                os.unlink(cpp_path)
-                if os.path.exists(bin_path):
-                    os.unlink(bin_path)
         elif language == "bash":
-            result = subprocess.run(
-                ["bash", "-c", script],
-                capture_output=True, text=True, timeout=15,
-                cwd=tempfile.gettempdir(),
-            )
+            use_shell = config.get("shell", False)
+            ext = config.get("ext", ".sh")
+            with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as f:
+                f.write(script)
+                tmp_path = f.name
+            if use_shell:
+                bash_cmd = config.get("cmd", ["bash"])
+                result = subprocess.run(
+                    f'{" ".join(bash_cmd)} "{tmp_path}"',
+                    capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+                    cwd=tempfile.gettempdir(), env=env, shell=True,
+                )
+            else:
+                result = subprocess.run(
+                    ["bash", tmp_path],
+                    capture_output=True, encoding="utf-8", errors="replace", timeout=15,
+                    cwd=tempfile.gettempdir(), env=env,
+                )
         else:
             return {"results": [], "all_passed": False, "error": f"Unsupported language: {language}"}
 
@@ -243,13 +262,32 @@ def validate_exercise(language: str, solution: str, test_cases: list[dict]) -> d
         parsed = parse_test_results(output, duration_ms)
         if not parsed.get("results") and not parsed.get("all_passed"):
             logger.warning(
-                "Validation produced no results. rc=%d stdout=%s stderr=%s",
-                result.returncode, result.stdout[-300:] if result.stdout else "",
-                result.stderr[-300:] if result.stderr else "",
+                "Validation produced no results. rc=%d stdout=[%s] stderr=[%s]",
+                result.returncode,
+                (result.stdout or "")[-500:],
+                (result.stderr or "")[-500:],
             )
+            # Log the first 500 chars of stderr too — TransformError messages
+            # can appear at the beginning and get truncated by the -500 slice
+            if result.stderr and len(result.stderr) > 500:
+                logger.warning(
+                    "stderr (first 500 chars): [%s]",
+                    result.stderr[:500],
+                )
         return parsed
     except subprocess.TimeoutExpired:
         return {"results": [], "all_passed": False, "error": "Execution timed out (15s)"}
     except Exception as e:
         logger.exception("Validation exception: %s", e)
         return {"results": [], "all_passed": False, "error": str(e)}
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        if bin_path:
+            try:
+                os.unlink(bin_path)
+            except Exception:
+                pass

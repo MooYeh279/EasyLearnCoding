@@ -15,6 +15,17 @@ logger = get_logger("exercises")
 router = APIRouter(prefix="/api", tags=["exercises"])
 
 
+def _validation_error_detail(validation: dict) -> str:
+    """Build a concise error description from validation results for AI feedback."""
+    error = validation.get("error", "")
+    results = validation.get("results", [])
+    if results:
+        failed = [r for r in results if not r.get("passed")]
+        parts = [f"{f['name']}: {f.get('error', 'test failed')}" for f in failed]
+        return "; ".join(parts)
+    return error or "Solution could not execute (syntax/runtime error)"
+
+
 def _build_knowledge_summary(lessons, max_chars_per_lesson: int = 500) -> str:
     """Build a knowledge description from lesson content, not just titles."""
     parts = []
@@ -55,6 +66,7 @@ def _ex_to_response(ex: Exercise) -> dict:
         "hints": ex.hints or [],
         "section_id": ex.section_id,
         "type": ex.type,
+        "language": ex.language or "python",
     }
 
 
@@ -72,33 +84,75 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
     lessons = db.query(Lesson).filter(Lesson.section_id == section_id).all()
     knowledge_description = _build_knowledge_summary(lessons)
 
-    # 1. AI generates the exercise
-    try:
-        exercise_data = await generate_exercise_async(
-            topic_title=topic.title,
-            language_name=language_name,
-            section_title=section.title,
-            knowledge_description=knowledge_description,
-        )
-    except Exception as e:
-        logger.warning("Section exercise generation failed for section %s: %s", section_id, e)
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail="AI generation failed",
+    # 1. AI generates the exercise (retry once on syntax/runtime errors)
+    MAX_ATTEMPTS = 2
+    exercise_data = None
+    validation = None
+    for attempt in range(MAX_ATTEMPTS):
+        error_feedback = None
+        if attempt > 0 and validation:
+            error_feedback = _validation_error_detail(validation)
+            logger.info("Retrying exercise generation for section %s (attempt %d/%d): %s",
+                        section_id, attempt + 1, MAX_ATTEMPTS, error_feedback[:80])
+        try:
+            exercise_data = await generate_exercise_async(
+                topic_title=topic.title,
+                language_name=language_name,
+                section_title=section.title,
+                knowledge_description=knowledge_description,
+                error_feedback=error_feedback,
+            )
+        except Exception as e:
+            logger.warning("Section exercise generation failed for section %s: %s", section_id, e)
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail="AI generation failed",
+            )
+
+        # 2. Validate with reference solution
+        test_cases = exercise_data.get("test_cases", [])
+        solution = exercise_data.get("solution", "")
+        validation = validate_exercise(language_name, solution, test_cases)
+
+        if validation.get("all_passed"):
+            break
+
+        results = validation.get("results", [])
+        failed_cases = [r for r in results if not r.get("passed")]
+        all_failed = len(failed_cases) == len(results) if results else False
+
+        # Log failure details so we can diagnose WHY
+        error_detail = "; ".join(
+            f"{f['name']}: {f.get('error', 'unknown')}" for f in failed_cases
+        ) if failed_cases else validation.get("error", "unknown")
+        logger.warning(
+            "Exercise validation FAILED for section %s: %d/%d tests failed — %s",
+            section_id, len(failed_cases), len(results) if results else 1, error_detail,
         )
 
-    # 2. Validate with reference solution
-    test_cases = exercise_data.get("test_cases", [])
-    solution = exercise_data.get("solution", "")
-    validation = validate_exercise(language_name, solution, test_cases)
-
-    if not validation.get("all_passed"):
-        failed_cases = [r for r in validation.get("results", []) if not r.get("passed")]
+        # If ALL tests failed, the solution likely has a syntax/runtime error → retry.
+        # If only SOME failed, it's a logic error → don't retry.
+        if not all_failed:
+            raise HTTPException(
+                status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "Generated exercise failed validation",
+                    "failed_cases": failed_cases,
+                    "validation_error": validation.get("error", ""),
+                    "all_passed": validation.get("all_passed"),
+                },
+            )
+        # all_failed → fall through to retry (or raise after loop exhausts)
+    else:
+        # All retries exhausted without passing
+        logger.warning(
+            "Exercise validation FAILED after %d retries for section %s: %s",
+            MAX_ATTEMPTS, section_id, validation.get("error", "unknown"),
+        )
         raise HTTPException(
             status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
             detail={
-                "message": "Generated exercise failed validation",
-                "failed_cases": failed_cases,
+                "message": "Generated exercise failed validation after retries",
                 "validation_error": validation.get("error", ""),
                 "all_passed": validation.get("all_passed"),
             },
@@ -141,33 +195,72 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
     lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
     knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=300)
 
-    try:
-        exercise_data = await generate_exercise_async(
-            topic_title=topic.title,
-            language_name=language_name,
-            section_title=f"{topic.title} (Comprehensive)",
-            knowledge_description=knowledge_description,
-        )
-    except Exception as e:
-        logger.warning("Topic exercise generation failed for topic %s: %s", topic_id, e)
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail="AI generation failed",
+    # 1. AI generates the exercise (retry once on syntax/runtime errors)
+    MAX_ATTEMPTS = 2
+    exercise_data = None
+    validation = None
+    for attempt in range(MAX_ATTEMPTS):
+        error_feedback = None
+        if attempt > 0 and validation:
+            error_feedback = _validation_error_detail(validation)
+            logger.info("Retrying topic exercise generation for topic %s (attempt %d/%d): %s",
+                        topic_id, attempt + 1, MAX_ATTEMPTS, error_feedback[:80])
+        try:
+            exercise_data = await generate_exercise_async(
+                topic_title=topic.title,
+                language_name=language_name,
+                section_title=f"{topic.title} (Comprehensive)",
+                knowledge_description=knowledge_description,
+                error_feedback=error_feedback,
+            )
+        except Exception as e:
+            logger.warning("Topic exercise generation failed for topic %s: %s", topic_id, e)
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail="AI generation failed",
+            )
+
+        test_cases = exercise_data.get("test_cases", [])
+        solution = exercise_data.get("solution", "")
+        validation = validate_exercise(language_name, solution, test_cases)
+
+        if validation.get("all_passed"):
+            break
+
+        results = validation.get("results", [])
+        failed_cases = [r for r in results if not r.get("passed")]
+        all_failed = len(failed_cases) == len(results) if results else False
+
+        error_detail = "; ".join(
+            f"{f['name']}: {f.get('error', 'unknown')}" for f in failed_cases
+        ) if failed_cases else validation.get("error", "unknown")
+        logger.warning(
+            "Topic exercise validation FAILED for topic %s: %d/%d tests failed — %s",
+            topic_id, len(failed_cases), len(results) if results else 1, error_detail,
         )
 
-    test_cases = exercise_data.get("test_cases", [])
-    solution = exercise_data.get("solution", "")
-    validation = validate_exercise(language_name, solution, test_cases)
-
-    if not validation.get("all_passed"):
-        failed_cases = [r for r in validation.get("results", []) if not r.get("passed")]
+        if not all_failed:
+            raise HTTPException(
+                status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "Generated exercise failed validation",
+                    "failed_cases": failed_cases,
+                    "validation_error": validation.get("error", ""),
+                    "all_passed": validation.get("all_passed"),
+                },
+            )
+        # all_failed → fall through to retry
+    else:
+        logger.warning(
+            "Topic exercise validation FAILED after %d retries for topic %s: %s",
+            MAX_ATTEMPTS, topic_id, validation.get("error", "") if validation else "unknown",
+        )
         raise HTTPException(
             status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
             detail={
-                "message": "Generated exercise failed validation",
-                "failed_cases": failed_cases,
-                "validation_error": validation.get("error", ""),
-                "all_passed": validation.get("all_passed"),
+                "message": "Generated exercise failed validation after retries",
+                "validation_error": validation.get("error", "") if validation else "",
+                "all_passed": validation.get("all_passed") if validation else False,
             },
         )
 

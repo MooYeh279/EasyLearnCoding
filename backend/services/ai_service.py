@@ -173,16 +173,56 @@ async def generate_lesson_async(topic_title: str, language_name: str, section_ti
 
 
 def _assertion_syntax_for(language_name: str) -> str:
-    """Return language-specific assertion syntax guide for the AI prompt."""
+    """Return the complete assertion format guide for test_cases[].assert per language."""
     guides = {
-        "python": "Use Python `assert` statements, e.g. `assert add(1, 2) == 3`",
-        "javascript": "Use `console.assert()` expressions, e.g. `console.assert(add(1, 2) === 3)`",
-        "typescript": "Use `console.assert()` expressions, e.g. `console.assert(add(1, 2) === 3)`",
-        "c": "Use C expressions (will be wrapped in CHECK macro), e.g. `add(1, 2) == 3`",
-        "cpp": "Use C++ expressions (will be wrapped in CHECK macro), e.g. `add(1, 2) == 3`",
-        "bash": 'Use __test__ calls, e.g. `__test__ "1+2" "3" add 1 2`',
+        "python": (
+            "Each test_cases[].assert is a Python assert expression:\n"
+            "  `assert add(1, 2) == 3`\n"
+            "For multi-statement tests, separate with `;`:\n"
+            "  `x = add(1, 2); assert x == 3`"
+        ),
+        "javascript": (
+            "The code that runs inside a test function. Use __assert__() to check results:\n"
+            '  `__assert__(add(1, 2) === 3, "1+2 should be 3")`\n'
+            "__assert__(cond, msg) throws an Error if cond is false. "
+            "For multi-step tests, use multiple statements separated by newlines."
+        ),
+        "typescript": (
+            "The code that runs inside a test function. Use __assert__() to check results:\n"
+            '  `__assert__(add(1, 2) === 3, "1+2 should be 3")`\n'
+            "__assert__(cond, msg) throws an Error if cond is false. "
+            "For multi-step tests, use multiple statements separated by newlines."
+        ),
+        "c": (
+            "Each test_cases[].assert is a C expression (it will be wrapped by the test runner):\n"
+            "  `add(1, 2) == 3`\n"
+            "For strings: `strcmp(result, \"expected\") == 0`"
+        ),
+        "cpp": (
+            "Each test_cases[].assert is a C++ expression (it will be wrapped by the test runner):\n"
+            "  `add(1, 2) == 3`\n"
+            "For strings: `strcmp(result, \"expected\") == 0`"
+        ),
+        "bash": (
+            "Each test_cases[].assert uses the __test__ function:\n"
+            '  `__test__ "test name" "expected output" your_function arg1 arg2`\n'
+            "The __test__ function captures stdout and compares it to the expected string."
+        ),
     }
     return guides.get(language_name, "Use assert statements")
+
+
+def _template_example_for(language_name: str) -> str:
+    """Return a single template example for the target language only."""
+    examples = {
+        "python": 'def add(a, b):\n    # TODO: return the sum\n    pass',
+        "javascript": 'function add(a, b) {\n  // TODO: return a + b\n}',
+        "typescript": 'function add(a: number, b: number): number {\n  // TODO: return a + b\n}',
+        "c": 'int add(int a, int b) {\n    /* TODO: return the sum */\n}',
+        "cpp": 'int add(int a, int b) {\n    // TODO: return the sum\n}',
+        "bash": 'add() {\n  # TODO: return the sum\n  local result=$(( $1 + $2 ))\n  echo "$result"\n}',
+    }
+    return examples.get(language_name, examples["python"])
 
 
 def _parse_exercise_json(text: str) -> dict:
@@ -191,24 +231,62 @@ def _parse_exercise_json(text: str) -> dict:
     Handles:
     - Invalid JSON escape sequences (\\w, \\s, Windows paths, etc.)
     - Trailing commas before closing brackets/braces
+    - Text surrounding the JSON object (markdown, explanations, etc.)
     """
+    # Try strict parse first
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
+
+    # Extract JSON object from surrounding text (find outermost { })
+    json_start = text.find("{")
+    if json_start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        json_end = -1
+        for i in range(json_start, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+            elif ch == '"' and not escape:
+                in_string = not in_string
+            elif not in_string:
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        json_end = i + 1
+                        break
+        if json_end != -1:
+            text = text[json_start:json_end]
+
+    fixed = text
 
     # Fix invalid escape sequences: backslash not followed by a valid JSON escape
     # Valid JSON escapes: \"  \\  \/  \b  \f  \n  \r  \t  \uXXXX
     fixed = re.sub(
         r'\\(?![\\"/bfnrt]|u[0-9A-Fa-f]{4})',
         r'\\\\',
-        text,
+        fixed,
     )
 
     # Fix trailing commas: ,]  ,}
     fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
 
-    return json.loads(fixed)
+    try:
+        return json.loads(fixed)
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Failed to parse exercise JSON after repair: %s. Raw (last 500): %s",
+            e, text[-500:],
+        )
+        raise
 
 
 async def generate_exercise_async(
@@ -217,8 +295,13 @@ async def generate_exercise_async(
     section_title: str,
     knowledge_description: str,
     content_language: str = "zh",
+    error_feedback: str | None = None,
 ) -> dict:
-    """Generate a coding exercise via AI. Returns parsed JSON dict."""
+    """Generate a coding exercise via AI. Returns parsed JSON dict.
+
+    Set error_feedback to include a previous validation failure so the AI
+    can fix syntax/runtime errors in the solution.
+    """
     content_lang_name = _lang_name(content_language)
     logger.info(
         "Generating exercise for '%s/%s' (%s) in %s",
@@ -234,17 +317,28 @@ async def generate_exercise_async(
             content_language=content_lang_name,
             platform_info=get_platform_info(),
             assertion_syntax=_assertion_syntax_for(language_name),
+            template_example=_template_example_for(language_name),
         )
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": f"Generate a coding exercise for section: {section_title}"},
         ]
+        if error_feedback:
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"The previous solution failed to run with these errors:\n{error_feedback}\n\n"
+                    "IMPORTANT: Make sure the 'solution' field contains valid, runnable "
+                    f"{language_name} code with NO syntax errors (indentation, missing colons, "
+                    "unbalanced brackets, etc.). Verify the code can actually execute."
+                ),
+            })
+
         result = await _provider.chat_completion_async(
             model=get_model(),
             messages=messages,
             temperature=AI_GENERATION_TEMPERATURE,
         )
-        # Strip markdown code fences if present
         result = result.strip()
         if result.startswith("```"):
             lines = result.split("\n")

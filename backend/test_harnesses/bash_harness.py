@@ -2,7 +2,7 @@ BASH_HARNESS = """\
 __results='['
 _first_test=1
 
-escaped() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'; }
+escaped() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g; s/\x0a/\\\\n/g; s/\x0d/\\\\r/g; s/\x09/\\\\t/g'; }
 export -f escaped
 
 __test__() {
