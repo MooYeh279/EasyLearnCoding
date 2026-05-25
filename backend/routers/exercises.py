@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api", tags=["exercises"])
 MAX_GENERATION_ATTEMPTS = 3
 MAX_STRUCTURE_RETRIES = 2
 
+_regenerating: set[int] = set()
+
 
 def _build_knowledge_summary(lessons, max_chars_per_lesson: int = 500) -> str:
     """Build a knowledge description from lesson content."""
@@ -50,6 +52,7 @@ def _ex_to_response(ex: Exercise) -> dict:
         "type": ex.type,
         "language": ex.language or "python",
         "declarations": ex.declarations or "",
+        "regenerating": ex.id in _regenerating,
     }
 
 
@@ -200,12 +203,83 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
     return _ex_to_response(db_exercise)
 
 
+@router.put("/exercises/{exercise_id}/code")
+def save_exercise_code(exercise_id: int, req: RunExerciseRequest, db: Session = Depends(get_db)):
+    exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not exercise:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Exercise not found")
+    exercise.template = req.code
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/exercises/{exercise_id}")
 def get_exercise(exercise_id: int, db: Session = Depends(get_db)):
     exercise = db.query(Exercise).filter(Exercise.id == exercise_id).first()
     if not exercise:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Exercise not found")
     return _ex_to_response(exercise)
+
+
+@router.post("/exercises/{exercise_id}/regenerate")
+async def regenerate_exercise(exercise_id: int, db: Session = Depends(get_db)):
+    """Regenerate an exercise in-place, keeping the same ID."""
+    if exercise_id in _regenerating:
+        raise HTTPException(status_code=HTTPStatus.CONFLICT, detail="Exercise regeneration already in progress")
+
+    existing = db.query(Exercise).filter(Exercise.id == exercise_id).first()
+    if not existing:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Exercise not found")
+
+    _regenerating.add(exercise_id)
+    try:
+        # Derive context from the existing exercise's section/topic
+        language_name = existing.language or "python"
+        knowledge_description = ""
+        topic_title = ""
+        section_title = ""
+
+        if existing.type == "section" and existing.section_id:
+            section = db.query(Section).filter(Section.id == existing.section_id).first()
+            if section:
+                section_title = section.title
+                topic = db.query(Topic).filter(Topic.id == section.topic_id).first()
+                if topic:
+                    topic_title = topic.title
+                lessons = db.query(Lesson).filter(Lesson.section_id == existing.section_id).all()
+                knowledge_description = _build_knowledge_summary(lessons)
+        elif existing.type == "topic" and existing.topic_id:
+            topic = db.query(Topic).filter(Topic.id == existing.topic_id).first()
+            if topic:
+                topic_title = topic.title
+                section_title = f"{topic.title} (Comprehensive)"
+                sections = db.query(Section).filter(Section.topic_id == existing.topic_id).all()
+                section_ids = [s.id for s in sections]
+                lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
+                knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=300)
+
+        exercise, validation, template = await _generate_validated_exercise(
+            language_name=language_name,
+            topic_title=topic_title,
+            section_title=section_title,
+            knowledge_description=knowledge_description,
+        )
+
+        # Update the existing row in-place (keeps the same ID)
+        test_cases_data = [tc.model_dump() for tc in exercise.test_cases]
+        existing.question = exercise.question
+        existing.template = template
+        existing.test_cases = json.dumps(test_cases_data, ensure_ascii=False)
+        existing.solution = exercise.solution
+        existing.declarations = exercise.declarations
+        existing.knowledge_tags = exercise.knowledge_tags
+        existing.hints = exercise.hints
+
+        db.commit()
+        db.refresh(existing)
+        return _ex_to_response(existing)
+    finally:
+        _regenerating.discard(exercise_id)
 
 
 @router.post("/exercises/{exercise_id}/run")
@@ -235,6 +309,10 @@ def run_exercise(exercise_id: int, req: RunExerciseRequest, db: Session = Depend
         full_code = f"{declarations}\n\n{req.code}"
     else:
         full_code = req.code
+
+    # Save user code to template so it persists across page reloads
+    exercise.template = req.code
+    db.commit()
 
     return run_exercise_code(exercise.language, full_code, test_cases)
 

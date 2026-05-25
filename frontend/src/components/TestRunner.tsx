@@ -1,25 +1,11 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
-import { Button, Spin, Tooltip } from 'antd';
+import { Button, Spin, Tooltip, message } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useContentLang } from '../context/LangContext';
+import { api } from '../api/client';
 import type { ExerciseRunResponse } from '../types';
 
 const MonacoEditor = lazy(() => import('@monaco-editor/react').then(m => ({ default: m.Editor })));
-
-const CODE_STORE_PREFIX = 'exercise_code_';
-
-function loadCode(exerciseId: number | undefined, template: string): string {
-  if (!exerciseId) return template;
-  try {
-    const saved = localStorage.getItem(CODE_STORE_PREFIX + exerciseId);
-    return saved ?? template;
-  } catch { return template; }
-}
-
-function saveCode(exerciseId: number | undefined, code: string) {
-  if (!exerciseId) return;
-  try { localStorage.setItem(CODE_STORE_PREFIX + exerciseId, code); } catch { /* quota exceeded */ }
-}
 
 interface Props {
   exerciseId?: number;
@@ -47,26 +33,44 @@ const C = {
 
 export default function TestRunner({ exerciseId, template, language, running, testResult, onRun }: Props) {
   const { t } = useContentLang();
-  const [code, setCode] = useState(() => loadCode(exerciseId, template));
+  const [code, setCode] = useState(template);
 
-  // Persist code changes to localStorage (debounced by React batching)
+  // Reload when template changes (regeneration) or exercise changes
   useEffect(() => {
-    saveCode(exerciseId, code);
-  }, [code, exerciseId]);
+    setCode(template);
+  }, [template, exerciseId]);
 
-  // Reload code when exercise changes
-  useEffect(() => {
-    setCode(loadCode(exerciseId, template));
-  }, [exerciseId, template]);
+  const handleRunWithSave = useCallback(() => {
+    if (exerciseId) api.saveExerciseCode(exerciseId, code).catch(() => {});
+    onRun(code);
+  }, [exerciseId, code, onRun]);
 
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
+    // Ctrl+Enter: run tests (with save)
     editor.addAction({
       id: 'run-tests',
       label: 'Run Tests',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-      run: () => onRun(editor.getValue()),
+      run: () => {
+        if (exerciseId) api.saveExerciseCode(exerciseId, editor.getValue()).catch(() => {});
+        onRun(editor.getValue());
+      },
     });
-  }, [onRun]);
+
+    // Ctrl+S: save to backend
+    editor.addAction({
+      id: 'save-code',
+      label: 'Save Code',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => {
+        if (!exerciseId) return;
+        api.saveExerciseCode(exerciseId, editor.getValue()).then(
+          () => message.success(t('exercise.codeSaved')),
+          () => message.error(t('exercise.saveFail')),
+        );
+      },
+    });
+  }, [exerciseId, onRun, t]);
 
   const handleReset = () => setCode(template);
 
@@ -93,7 +97,7 @@ export default function TestRunner({ exerciseId, template, language, running, te
         </Tooltip>
       </div>
 
-      {/* Monaco editor — minHeight:0 + overflow:hidden lets it shrink when results appear */}
+      {/* Monaco editor */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', background: C.codeBg }}>
         <Suspense fallback={
           <div style={{ background: C.codeBg, padding: '20px 24px' }}>
@@ -132,7 +136,7 @@ export default function TestRunner({ exerciseId, template, language, running, te
           <Button
             type="primary"
             icon={running ? <Spin size="small" /> : <PlayCircleOutlined />}
-            onClick={() => onRun(code)}
+            onClick={handleRunWithSave}
             loading={running}
             style={{
               borderRadius: C.radiusSm,
@@ -147,7 +151,7 @@ export default function TestRunner({ exerciseId, template, language, running, te
         <span style={{ fontSize: 12, color: C.textMuted }}>Ctrl+Enter</span>
       </div>
 
-      {/* Test results panel — capped at 45% of viewport so it's always visible */}
+      {/* Test results panel */}
       {hasResults && (
         <div style={{
           borderTop: `1px solid ${C.border}`, background: '#fff',
@@ -188,7 +192,7 @@ export default function TestRunner({ exerciseId, template, language, running, te
             </div>
           </div>
 
-          {/* Top-level error (e.g. syntax error, no results found) */}
+          {/* Top-level error */}
           {testResult!.error && (
             <div style={{ padding: '10px 16px' }}>
               <div style={{
@@ -203,7 +207,7 @@ export default function TestRunner({ exerciseId, template, language, running, te
             </div>
           )}
 
-          {/* Raw output for debugging */}
+          {/* Raw output */}
           {testResult!.raw_output && (
             <div style={{ padding: '0 16px 10px' }}>
               <details style={{ fontSize: 12 }}>

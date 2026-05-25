@@ -2,10 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import tempfile
-import time
 
 from logger import get_logger
 from services.assertion_generator import generate_assertions
@@ -93,15 +89,6 @@ def parse_test_results(output: str, duration_ms: int) -> dict:
         }
 
 
-def _resolve_lang_config(language: str) -> dict:
-    """Resolve language config from code_executor."""
-    try:
-        from routers.code_executor import _resolve_lang_config as _resolve
-        return _resolve(language)
-    except Exception:
-        return {}
-
-
 def build_exercise_script(language: str, user_code: str, test_cases: list[dict]) -> str | None:
     """Build a complete runnable script from user code and test cases.
 
@@ -140,101 +127,31 @@ def run_exercise_code(
     if script is None:
         return {"results": [], "all_passed": False, "error": f"Unsupported language: {language}"}
 
-    config = _resolve_lang_config(language)
-    env = config.get("env", os.environ.copy())
-    start = time.perf_counter()
-    tmp_path: str | None = None
-    bin_path: str | None = None
+    from services.code_runner import execute_code
 
-    try:
-        if language == "python":
-            result = subprocess.run(
-                ["python", "-c", script],
-                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
-                cwd=tempfile.gettempdir(), env=env,
-            )
-        elif language in ("javascript", "typescript"):
-            node_cmd = config.get("cmd", ["tsx"] if language == "typescript" else ["node"])
-            ext = config.get("ext", ".ts" if language == "typescript" else ".js")
-            use_shell = config.get("shell", False)
-            with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as f:
-                f.write(script)
-                tmp_path = f.name
-            if use_shell:
-                result = subprocess.run(
-                    f'{" ".join(node_cmd)} "{tmp_path}"',
-                    capture_output=True, encoding="utf-8", errors="replace", timeout=15,
-                    cwd=tempfile.gettempdir(), env=env, shell=True,
-                )
-            else:
-                result = subprocess.run(
-                    [*node_cmd, tmp_path],
-                    capture_output=True, encoding="utf-8", errors="replace", timeout=15,
-                    cwd=tempfile.gettempdir(), env=env,
-                )
-        elif language in ("c", "cpp"):
-            ext = config.get("ext", ".c" if language == "c" else ".cpp")
-            compile_cmd = list(config.get("compile_cmd", ["gcc"] if language == "c" else ["g++", "-std=c++17"]))
-            with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as f:
-                f.write(script)
-                tmp_path = f.name
-            bin_path = tmp_path + (".exe" if os.name == "nt" else ".out")
-            compile_result = subprocess.run(
-                [*compile_cmd, tmp_path, "-o", bin_path, "-w"],
-                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
-                env=env,
-            )
-            if compile_result.returncode != 0:
-                logger.warning(
-                    "C/C++ compilation failed for %s script:\n--- SCRIPT ---\n%s\n--- STDERR ---\n%s",
-                    language, script[:2000], compile_result.stderr[:1000],
-                )
-                return {
-                    "results": [],
-                    "all_passed": False,
-                    "error": f"Compilation failed: {compile_result.stderr[-200:]}",
-                }
-            result = subprocess.run(
-                [bin_path],
-                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
-                cwd=tempfile.gettempdir(),
-            )
-        elif language == "bash":
-            ext = config.get("ext", ".sh")
-            with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as f:
-                f.write(script)
-                tmp_path = f.name
-            result = subprocess.run(
-                ["bash", tmp_path],
-                capture_output=True, encoding="utf-8", errors="replace", timeout=15,
-                cwd=tempfile.gettempdir(), env=env,
-            )
-        else:
-            return {"results": [], "all_passed": False, "error": f"Unsupported language: {language}"}
+    result = execute_code(
+        language, script,
+        timeout=15,
+        suppress_warnings=True,  # Exercise validation: suppress compiler warnings
+        native=True,  # Exercise harnesses are written in the target language
+    )
 
-        duration_ms = int((time.perf_counter() - start) * 1000)
-        output = (result.stdout or "") + (result.stderr or "")
-        parsed = parse_test_results(output, duration_ms)
-        if not parsed.get("results") and not parsed.get("all_passed"):
-            logger.warning(
-                "[%s] Execution produced no results. rc=%d stdout=[%s] stderr=[%s]",
-                label, result.returncode,
-                (result.stdout or "")[-500:],
-                (result.stderr or "")[-500:],
-            )
-        return parsed
-    except subprocess.TimeoutExpired:
-        return {"results": [], "all_passed": False, "error": "Execution timed out (15s)"}
-    except Exception as e:
-        logger.exception("Execution exception: %s", e)
-        return {"results": [], "all_passed": False, "error": str(e)}
-    finally:
-        for path in (tmp_path, bin_path):
-            if path:
-                try:
-                    os.unlink(path)
-                except Exception:
-                    pass
+    duration_ms = result.duration_ms
+
+    if result.error and result.error.startswith("Compilation failed"):
+        return {"results": [], "all_passed": False, "error": result.error}
+
+    output = result.stdout + result.stderr
+    parsed = parse_test_results(output, duration_ms)
+    if not parsed.get("results") and not parsed.get("all_passed"):
+        logger.warning(
+            "[%s] Execution produced no results. rc=%d stdout=[%s] stderr=[%s]",
+            label, result.exit_code,
+            result.stdout[-500:],
+            result.stderr[-500:],
+        )
+    return parsed
+
 
 
 def validate_exercise(
@@ -243,7 +160,7 @@ def validate_exercise(
     """5-layer validation pipeline.
 
     Layer 1: Structure (Pydantic) — already validated at parse time
-    Layer 2: Signature consistency — function_signatures match solution
+    Layer 2: Signature consistency — function_signatures match solution AND question
     Layer 3: Compile — solution compiles/parses
     Layer 4: Run — solution passes all test cases
     Layer 5: Template — generated template is syntactically valid
@@ -257,7 +174,17 @@ def validate_exercise(
             error=f"Function names not found in solution: {', '.join(missing)}",
         )
 
-    # Layer 3+4: Compile and run
+    # Check that function/class names from signatures appear in the question
+    sig_names = [s.name for s in exercise.function_signatures]
+    names_in_question = [name for name in sig_names if name in exercise.question]
+    if not names_in_question:
+        return ValidationResult(
+            valid=False,
+            layer="signature",
+            error=f"None of the function names {sig_names} appear in the question",
+        )
+
+    # Layer 3: Compile and run
     test_dicts = [tc.model_dump() for tc in exercise.test_cases]
     run_result = run_exercise_code(language, exercise.solution, test_dicts, label="solution")
 
@@ -280,7 +207,7 @@ def validate_exercise(
             test_results=run_result,
         )
 
-    # Layer 5: Template validation
+    # Layer 6: Template validation
     template = generate_template_from_solution(exercise.solution, language)
     if template:
         template_run = run_exercise_code(language, template, test_dicts, label="template")

@@ -1,4 +1,4 @@
-"""Tests for exercise_service — 5-layer validation pipeline."""
+"""Tests for exercise_service — 6-layer validation pipeline."""
 import json
 from services.exercise_schema import (
     FunctionSignature, TestCaseSpec, RawExerciseOutput, ValidationResult,
@@ -9,7 +9,7 @@ def test_layer1_structure_valid():
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
-        question="Add",
+        question="Implement the add function",
         solution="def add(a, b):\n    return a + b",
         function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
         test_cases=[
@@ -25,7 +25,7 @@ def test_layer2_signature_mismatch():
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
-        question="Add",
+        question="Implement the add function",
         solution="def multiply(a, b):\n    return a * b",
         function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
         test_cases=[
@@ -38,11 +38,30 @@ def test_layer2_signature_mismatch():
     assert result.layer == "signature"
 
 
-def test_layer4_run_passes():
+def test_layer2_question_signature_mismatch():
+    """Function names from signatures must appear in the question text."""
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
-        question="Add",
+        question="Implement a Vehicle class with static member count",
+        solution="def add(a, b):\n    return a + b",
+        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
+        test_cases=[
+            TestCaseSpec(name="basic", input="add(1, 2)", expected="3"),
+        ],
+        hints=["hint"],
+    )
+    result = validate_exercise("python", exercise)
+    assert result.valid is False
+    assert result.layer == "signature"
+    assert "question" in result.error.lower() or "add" in result.error
+
+
+def test_layer5_run_passes():
+    from services.exercise_service import validate_exercise
+
+    exercise = RawExerciseOutput(
+        question="Implement the add function",
         solution="def add(a, b):\n    return a + b",
         function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
         test_cases=[
@@ -57,11 +76,11 @@ def test_layer4_run_passes():
     assert result.test_results["all_passed"] is True
 
 
-def test_layer4_run_fails_wrong_solution():
+def test_layer5_run_fails_wrong_solution():
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
-        question="Add",
+        question="Implement the add function",
         solution="def add(a, b):\n    return a - b",
         function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
         test_cases=[
@@ -119,7 +138,7 @@ def test_validate_exercise_with_declarations():
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
-        question="Check status",
+        question="Check if the status is active using is_active",
         solution="def is_active(s):\n    return s == 'active'",
         function_signatures=[FunctionSignature(name="is_active", params="s", return_type="")],
         test_cases=[

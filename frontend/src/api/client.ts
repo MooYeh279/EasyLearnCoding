@@ -210,6 +210,17 @@ export const api = {
       body: JSON.stringify({ code }),
     }),
 
+  saveExerciseCode: (id: number, code: string) =>
+    request<{ ok: boolean }>(`/exercises/${id}/code`, {
+      method: 'PUT',
+      body: JSON.stringify({ code }),
+    }),
+
+  regenerateExercise: (id: number) =>
+    request<import('../types').Exercise>(`/exercises/${id}/regenerate`, {
+      method: 'POST',
+    }),
+
   getSectionExercises: (sectionId: number) =>
     request<import('../types').Exercise[]>(`/sections/${sectionId}/exercises`),
 

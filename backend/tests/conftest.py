@@ -34,6 +34,7 @@ if "declarations" not in [c["name"] for c in insp.get_columns("exercises")]:
         conn.execute(sqlalchemy.text("ALTER TABLE exercises ADD COLUMN declarations TEXT DEFAULT ''"))
         conn.commit()
 
+
 def override_get_db():
     db = TestingSessionLocal()
     try:

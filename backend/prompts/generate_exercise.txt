@@ -21,8 +21,10 @@ Pick ONE clear concept from the target knowledge. Use the SAME function/class na
 ---- WORKFLOW (follow EXACTLY in this order) ----
 
 STEP 1 — Write the SOLUTION.
-  Write complete, correct {language_name} code. This is the source of truth.
-  Mentally run it with sample inputs to confirm it works.
+  Write ONLY the functions/classes/methods the student must implement.
+  Do NOT include program entry points (main function, test harness, driver code).
+  The code must be correct, compilable {language_name}. This is the source of truth.
+  Mentally verify it with sample inputs to confirm it works.
 
 STEP 2 — Extract DECLARATIONS (optional).
   If your solution defines enum / type / interface / struct that the student

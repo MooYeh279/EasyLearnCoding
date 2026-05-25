@@ -192,6 +192,8 @@ const zh: Record<string, string> = {
   'exercise.validationFail': '题目验证未通过，请重新生成',
   'exercise.runTests': '运行测试',
   'exercise.resetCode': '重置代码',
+  'exercise.codeSaved': '代码已保存',
+  'exercise.saveFail': '保存失败',
   'exercise.running': '运行中...',
   'exercise.passed': '{n} 通过',
   'exercise.failed': '{n} 未通过',
@@ -207,6 +209,11 @@ const zh: Record<string, string> = {
   'exercise.tags': '知识点',
   'exercise.backToTopic': '返回课程',
   'exercise.preview': '题',
+  'exercise.regenerate': '重新生成',
+  'exercise.regenerating': '重新生成中...',
+  'exercise.regenerateSuccess': '题目已重新生成',
+  'exercise.regenerateFail': '重新生成失败，请重试',
+  'exercise.regenerateConfirm': '确定要重新生成这道练习题吗？当前代码将不会保留。',
 };
 
 const en: Record<string, string> = {
@@ -407,6 +414,8 @@ const en: Record<string, string> = {
   'exercise.validationFail': 'Exercise validation failed, please regenerate',
   'exercise.runTests': 'Run Tests',
   'exercise.resetCode': 'Reset Code',
+  'exercise.codeSaved': 'Code saved',
+  'exercise.saveFail': 'Save failed',
   'exercise.running': 'Running...',
   'exercise.passed': '{n} passed',
   'exercise.failed': '{n} failed',
@@ -422,6 +431,11 @@ const en: Record<string, string> = {
   'exercise.tags': 'Knowledge Tags',
   'exercise.backToTopic': 'Back to Topic',
   'exercise.preview': 'exercise(s)',
+  'exercise.regenerate': 'Regenerate',
+  'exercise.regenerating': 'Regenerating...',
+  'exercise.regenerateSuccess': 'Exercise regenerated',
+  'exercise.regenerateFail': 'Regeneration failed, please retry',
+  'exercise.regenerateConfirm': 'Are you sure you want to regenerate this exercise? Your current code will not be preserved.',
 };
 
 const dicts: Record<ContentLanguage, Record<string, string>> = { zh, en };

@@ -32,7 +32,51 @@ def generate_template_from_solution(solution: str, language: str) -> str:
     fn = dispatchers.get(language)
     if not fn:
         return solution
-    return fn(solution)
+    template = fn(solution)
+    # Remove main() and any entry-point guard from the template —
+    # the test harness provides its own entry point.
+    from test_harnesses import strip_function_body
+    template = strip_function_body(template, 'main')
+    # Python: strip `if __name__ == "__main__":` block
+    if language == "python":
+        template = _strip_main_guard(template)
+    return template
+
+
+def _strip_main_guard(code: str) -> str:
+    """Remove ``if __name__ == \"__main__\":`` block from Python code."""
+    import re
+    pattern = re.compile(r'if\s+__name__\s*==\s*["\']__main__["\']\s*:')
+    m = pattern.search(code)
+    if not m:
+        return code
+    start = m.start()
+    # Find the indented block that follows
+    lines = code[start:].splitlines()
+    if not lines:
+        return code
+    # Find base indentation of the `if` line
+    base_indent = len(lines[0]) - len(lines[0].lstrip())
+    # Collect lines belonging to this block (indented more than base)
+    block_lines = [lines[0]]
+    for line in lines[1:]:
+        stripped = line.lstrip()
+        if not stripped:  # empty line within block
+            block_lines.append(line)
+            continue
+        indent = len(line) - len(stripped)
+        if indent <= base_indent:
+            break
+        block_lines.append(line)
+    # Remove block plus leading blank line before it, if any
+    before = code[:start].rstrip('\n')
+    after_start = start
+    for bl in block_lines:
+        after_start = code.find(bl, after_start) + len(bl)
+    after = code[after_start:]
+    # Remove trailing newline after the block
+    after = after.lstrip('\n')
+    return before + '\n' + after if after else before
 
 
 def verify_signatures_in_solution(

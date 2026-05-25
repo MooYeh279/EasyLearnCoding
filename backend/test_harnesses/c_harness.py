@@ -41,8 +41,6 @@ def build_c_script(user_code: str, test_cases: str) -> str:
     if not test_cases.strip():
         raise ValueError("test_cases must not be empty")
     # Strip user-provided main() to prevent duplicate-main compilation errors
-    import re
-    user_code = re.sub(
-        r'\bint\s+main\s*\([^)]*\)\s*\{.*', '', user_code, flags=re.DOTALL
-    )
+    from . import strip_function_body
+    user_code = strip_function_body(user_code, 'main')
     return C_HARNESS.replace("__USER_CODE__", user_code).replace("__TEST_CASES__", test_cases)

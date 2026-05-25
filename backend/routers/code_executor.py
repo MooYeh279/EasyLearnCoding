@@ -18,6 +18,7 @@ from config import \
     CODE_TIMEOUT, CODE_COMPILE_TIMEOUT, CODE_MAX_LENGTH, CODE_QUEUE_POLL, \
     CODE_C_RUN_TIMEOUT, CODE_WORKSPACE
 from logger import get_logger
+from services.code_runner import execute_code, ExecutionResult
 
 _log = get_logger("code_executor")
 
@@ -161,21 +162,29 @@ def _collect_env_overrides() -> tuple[dict, list[str]]:
     return all_configs, path_entries
 
 
-def _resolve_lang_config(lang: str) -> dict:
+def _resolve_lang_config(lang: str, *, native: bool = False) -> dict:
     """Return the resolved config for `lang`, with any user-saved env_config applied.
 
     The returned dict includes an ``env`` key: a copy of ``_PY_ENV`` with the
     directories of ALL languages' custom runtime/compiler paths prepended to
     PATH.  This ensures that e.g. a bash code block can find the user's
     custom python / pip / gcc.
+
+    When *native* is True, platform compatibility overrides (e.g. bash→cmd
+    on Windows) are skipped so the code runs in the actual target language.
+    Exercise validation always uses native=True because test harness scripts
+    are written in the target language.
     """
-    if lang in _env_overrides:
-        return _env_overrides[lang]
+    cache_key = f"{lang}:native" if native else lang
+    if cache_key in _env_overrides:
+        return _env_overrides[cache_key]
 
     base = _BASE_LANG_CONFIG[lang].copy()
 
-    # On Windows, always use cmd for bash/shell — bash/WSL is unreliable
-    if lang in ("bash", "shell") and _IS_WIN:
+    # On Windows, use cmd for bash/shell — only when native=False.
+    # Exercise test harnesses are written in bash syntax and must run
+    # with the actual bash interpreter.
+    if lang in ("bash", "shell") and _IS_WIN and not native:
         base.update({"cmd": ["cmd", "/c"], "ext": ".bat", "inline": True})
 
     env = _PY_ENV.copy()
@@ -208,7 +217,7 @@ def _resolve_lang_config(lang: str) -> dict:
         env["PATH"] = sep.join(path_entries) + sep + current_path
 
     base["env"] = env
-    _env_overrides[lang] = base
+    _env_overrides[cache_key] = base
     return base
 
 
@@ -236,118 +245,54 @@ def run_code(body: CodeRunRequest):
     if len(body.code) > CODE_MAX_LENGTH:
         return {"stdout": "", "stderr": f"Code too long ({len(body.code)} chars, max {CODE_MAX_LENGTH})", "exit_code": 1, "duration_ms": 0}
 
+    # TypeScript type-check before execution (course lessons only)
     config = _resolve_lang_config(lang)
-    _run_env = config.get("env", _PY_ENV)
+    typecheck_cmd = config.get("typecheck_cmd")
+    if typecheck_cmd:
+        tc_result = _run_typecheck(body.code, config)
+        if tc_result is not None:
+            return tc_result
 
-    start = time.perf_counter()
-    tmp_path: str | None = None
+    result = execute_code(
+        lang, body.code,
+        timeout=CODE_TIMEOUT,
+        compile_timeout=CODE_COMPILE_TIMEOUT,
+    )
+    return {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "exit_code": result.exit_code,
+        "duration_ms": result.duration_ms,
+    }
+
+
+def _run_typecheck(code: str, config: dict) -> dict | None:
+    """Run TypeScript type-check. Returns an error dict if it fails, None if OK."""
+    typecheck_cmd = config.get("typecheck_cmd")
+    if not typecheck_cmd:
+        return None
+
+    _run_env = config.get("env", _PY_ENV)
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=config["ext"], delete=False, encoding="utf-8", dir=_workspace,
+    ) as f:
+        f.write(code)
+        tmp_path = f.name
 
     try:
-        if config.get("inline"):
-            proc = _run(
-                [*config["cmd"], body.code],
-                capture_output=True,
-                encoding="utf-8", errors="replace",
-                timeout=CODE_TIMEOUT, env=_run_env,
-            )
-        else:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=config["ext"], delete=False, encoding="utf-8",
-                dir=_workspace,
-            ) as f:
-                f.write(body.code)
-                tmp_path = f.name
-
-            # TypeScript type-check before execution
-            typecheck_cmd = config.get("typecheck_cmd")
-            if typecheck_cmd:
-                tc = _run(
-                    f'{typecheck_cmd[0]} {typecheck_cmd[1]} "{tmp_path}"',
-                    capture_output=True, encoding="utf-8", errors="replace", timeout=CODE_TIMEOUT, shell=True, env=_run_env,
-                )
-                if tc.returncode != 0:
-                    duration_ms = round((time.perf_counter() - start) * 1000)
-                    return {
-                        "stdout": "",
-                        "stderr": tc.stdout,
-                        "exit_code": tc.returncode,
-                        "duration_ms": duration_ms,
-                    }
-
-            # C/C++ compile+run: compile first, then execute the binary
-            if config.get("compile_cmd"):
-                import os as _os
-                exe_path = tmp_path.replace(config["ext"], config.get("run_ext", ""))
-                compile_proc = _run(
-                    [*config["compile_cmd"], tmp_path, "-o", exe_path],
-                    capture_output=True, encoding="utf-8", errors="replace",
-                    timeout=CODE_COMPILE_TIMEOUT, env=_run_env,
-                )
-                if compile_proc.returncode != 0:
-                    duration_ms = round((time.perf_counter() - start) * 1000)
-                    return {
-                        "stdout": "",
-                        "stderr": compile_proc.stderr or compile_proc.stdout,
-                        "exit_code": compile_proc.returncode,
-                        "duration_ms": duration_ms,
-                    }
-                proc = _run(
-                    [exe_path],
-                    capture_output=True, encoding="utf-8", errors="replace",
-                    timeout=config.get("timeout", CODE_TIMEOUT),
-                )
-                try:
-                    _os.unlink(exe_path)
-                except Exception:
-                    pass
-                duration_ms = round((time.perf_counter() - start) * 1000)
-                return {
-                    "stdout": proc.stdout,
-                    "stderr": proc.stderr,
-                    "exit_code": proc.returncode,
-                    "duration_ms": duration_ms,
-                }
-
-            if config.get("shell"):
-                proc = _run(
-                    f'{" ".join(config["cmd"])} "{tmp_path}"',
-                    capture_output=True, encoding="utf-8", errors="replace", timeout=CODE_TIMEOUT, shell=True, env=_run_env,
-                )
-            else:
-                proc = _run(
-                    [*config["cmd"], tmp_path],
-                    capture_output=True, encoding="utf-8", errors="replace", timeout=CODE_TIMEOUT, env=_run_env,
-                )
-
-        duration_ms = round((time.perf_counter() - start) * 1000)
-        return {
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
-            "exit_code": proc.returncode,
-            "duration_ms": duration_ms,
-        }
-    except subprocess.TimeoutExpired:
-        duration_ms = round((time.perf_counter() - start) * 1000)
-        return {
-            "stdout": "",
-            "stderr": f"Execution timed out after {CODE_TIMEOUT}s",
-            "exit_code": 124,
-            "duration_ms": duration_ms,
-        }
-    except FileNotFoundError:
-        duration_ms = round((time.perf_counter() - start) * 1000)
-        return {
-            "stdout": "",
-            "stderr": f"{config['cmd'][0]} not found. Is it installed?",
-            "exit_code": 127,
-            "duration_ms": duration_ms,
-        }
+        tc = _run(
+            f'{typecheck_cmd[0]} {typecheck_cmd[1]} "{tmp_path}"',
+            capture_output=True, encoding="utf-8", errors="replace",
+            timeout=CODE_TIMEOUT, shell=True, env=_run_env,
+        )
+        if tc.returncode != 0:
+            return {"stdout": "", "stderr": tc.stdout, "exit_code": tc.returncode, "duration_ms": 0}
+        return None
     finally:
-        if tmp_path:
-            try:
-                Path(tmp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 @router.post("/code/run/stream")

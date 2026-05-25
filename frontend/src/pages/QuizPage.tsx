@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Spin, message } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Spin, message, Popconfirm } from 'antd';
+import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
 import type { Exercise, ExerciseRunResponse } from '../types';
@@ -24,16 +24,36 @@ export default function QuizPage() {
   const [exercise, setExercise] = useState<Exercise | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [testResult, setTestResult] = useState<ExerciseRunResponse | null>(null);
   const [activeTab, setActiveTab] = useState<'question' | 'hints' | 'related'>('question');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (exerciseId) {
       api.getExercise(Number(exerciseId))
-        .then(setExercise)
+        .then((ex) => {
+          setExercise(ex);
+          if (ex.regenerating) {
+            setRegenerating(true);
+            // Poll until regeneration completes
+            pollRef.current = setInterval(() => {
+              api.getExercise(Number(exerciseId)).then((fresh) => {
+                if (!fresh.regenerating) {
+                  clearInterval(pollRef.current!);
+                  pollRef.current = null;
+                  setExercise(fresh);
+                  setRegenerating(false);
+                  message.success(t('exercise.regenerateSuccess'));
+                }
+              });
+            }, 2000);
+          }
+        })
         .catch(() => message.error(t('topic.loadFail')))
         .finally(() => setLoading(false));
     }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [exerciseId, t]);
 
   const handleRun = useCallback(async (code: string) => {
@@ -53,6 +73,21 @@ export default function QuizPage() {
       setRunning(false);
     }
   }, [exerciseId]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (!exerciseId) return;
+    setRegenerating(true);
+    setTestResult(null);
+    try {
+      const updated = await api.regenerateExercise(Number(exerciseId));
+      setExercise(updated);
+      message.success(t('exercise.regenerateSuccess'));
+    } catch {
+      message.error(t('exercise.regenerateFail'));
+    } finally {
+      setRegenerating(false);
+    }
+  }, [exerciseId, t]);
 
   if (loading) {
     return <Spin size="large" style={{ display: 'block', margin: '200px auto' }} />;
@@ -79,6 +114,28 @@ export default function QuizPage() {
           <span style={{ color: '#d0d0d8' }}>|</span>
           <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{t('exercise.title')}</span>
         </div>
+        <Popconfirm
+          title={t('exercise.regenerateConfirm')}
+          onConfirm={handleRegenerate}
+          okText={t('exercise.regenerate')}
+          cancelText="—"
+          disabled={regenerating}
+        >
+          <button
+            disabled={regenerating}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', fontSize: 13, borderRadius: 6,
+              border: `1px solid ${C.border}`, background: '#fff',
+              color: regenerating ? C.textSec : C.primary,
+              cursor: regenerating ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            <ReloadOutlined spin={regenerating} />
+            {regenerating ? t('exercise.regenerating') : t('exercise.regenerate')}
+          </button>
+        </Popconfirm>
       </div>
 
       {/* Main content: left + right (resizable split) */}
