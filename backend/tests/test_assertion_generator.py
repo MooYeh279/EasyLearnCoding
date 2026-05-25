@@ -19,7 +19,7 @@ def test_javascript_basic():
 
     cases = [TestCaseSpec(name="basic", input="add(1, 2)", expected="3")]
     result = generate_assertions("javascript", cases)
-    assert '__test__("basic", () => { __assert__(add(1, 2) === 3) })' in result
+    assert '__test__("basic", () => { __assert__(__deepEq__(add(1, 2), 3)) })' in result
 
 
 def test_typescript_basic():
@@ -27,7 +27,7 @@ def test_typescript_basic():
 
     cases = [TestCaseSpec(name="basic", input="add(1, 2)", expected="3")]
     result = generate_assertions("typescript", cases)
-    assert '__test__("basic", () => { __assert__(add(1, 2) === 3) })' in result
+    assert '__test__("basic", () => { __assert__(__deepEq__(add(1, 2), 3)) })' in result
 
 
 def test_c_basic():
@@ -92,3 +92,31 @@ def test_expected_list_literal():
     cases = [TestCaseSpec(name="list", input="range3()", expected="[0, 1, 2]")]
     result = generate_assertions("python", cases)
     assert "__assert__(range3() == [0, 1, 2])" in result
+
+
+def test_cpp_string_uses_equality():
+    """C++ string assertions must use ==, not strcmp (std::string supports ==)."""
+    from services.assertion_generator import generate_assertions
+
+    cases = [TestCaseSpec(name="greet", input='greet("Alice")', expected='"Hello, Alice!"', is_string=True)]
+    result = generate_assertions("cpp", cases)
+    assert '__TEST__("greet", (greet("Alice") == "Hello, Alice!"));' in result
+    assert "strcmp" not in result
+
+
+def test_c_string_uses_strcmp():
+    """C string assertions must use strcmp (no == for char*)."""
+    from services.assertion_generator import generate_assertions
+
+    cases = [TestCaseSpec(name="greet", input='greet()', expected='"hello"', is_string=True)]
+    result = generate_assertions("c", cases)
+    assert "strcmp" in result
+
+
+def test_cpp_non_string_uses_equality():
+    """C++ non-string assertions use == (same as before)."""
+    from services.assertion_generator import generate_assertions
+
+    cases = [TestCaseSpec(name="add", input="add(1, 2)", expected="3")]
+    result = generate_assertions("cpp", cases)
+    assert '__TEST__("add", (add(1, 2) == 3));' in result

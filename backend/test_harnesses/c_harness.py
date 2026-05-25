@@ -2,6 +2,7 @@ C_HARNESS = """\
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define _JSON_BUF_SIZE 8192
 

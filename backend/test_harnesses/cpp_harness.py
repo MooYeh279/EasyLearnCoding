@@ -2,6 +2,10 @@ CPP_HARNESS = """\
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <cstring>
+#include <cmath>
+#include <vector>
+#include <algorithm>
 
 #define __TEST__(name, expr) do { \\
     if (!_first_test) _json_out << ","; \\

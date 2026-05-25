@@ -22,6 +22,7 @@ class RawExerciseOutput(BaseModel):
     solution: str = Field(min_length=1)
     function_signatures: list[FunctionSignature] = Field(min_length=1)
     test_cases: list[TestCaseSpec] = Field(min_length=1, max_length=10)
+    declarations: str = ""  # Supporting type/enum/interface/struct declarations
     knowledge_tags: list[str] = Field(default_factory=list)
     hints: list[str] = Field(min_length=1)
 

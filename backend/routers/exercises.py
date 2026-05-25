@@ -9,8 +9,8 @@ from database import get_db
 from logger import get_logger
 from models import Exercise, Section, Topic, Lesson
 from services.ai_service import generate_exercise_async
-from services.exercise_service import validate_exercise_v2, run_exercise_code
-from services.template_generator import generate_template
+from services.exercise_service import validate_exercise, run_exercise_code
+from services.template_generator import generate_template_from_solution
 
 logger = get_logger("exercises")
 router = APIRouter(prefix="/api", tags=["exercises"])
@@ -49,6 +49,7 @@ def _ex_to_response(ex: Exercise) -> dict:
         "section_id": ex.section_id,
         "type": ex.type,
         "language": ex.language or "python",
+        "declarations": ex.declarations or "",
     }
 
 
@@ -96,10 +97,10 @@ async def _generate_validated_exercise(
                 detail="AI generation failed",
             )
 
-        validation = validate_exercise_v2(language_name, exercise)
+        validation = validate_exercise(language_name, exercise)
 
         if validation.valid:
-            template = generate_template(language_name, exercise.function_signatures)
+            template = generate_template_from_solution(exercise.solution, language_name)
             return exercise, validation, template
 
         logger.warning(
@@ -151,6 +152,7 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
         template=template,
         test_cases=json.dumps(test_cases_data, ensure_ascii=False),
         solution=exercise.solution,
+        declarations=exercise.declarations,
         knowledge_tags=exercise.knowledge_tags,
         hints=exercise.hints,
     )
@@ -188,6 +190,7 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
         template=template,
         test_cases=json.dumps(test_cases_data, ensure_ascii=False),
         solution=exercise.solution,
+        declarations=exercise.declarations,
         knowledge_tags=exercise.knowledge_tags,
         hints=exercise.hints,
     )
@@ -225,7 +228,15 @@ def run_exercise(exercise_id: int, req: RunExerciseRequest, db: Session = Depend
             detail="Exercise test cases are malformed",
         )
 
-    return run_exercise_code(exercise.language, req.code, test_cases)
+    # Prepend declarations (enum/type/interface/struct) before user code
+    # Avoid duplication: the template (derived from solution) may already include them
+    declarations = exercise.declarations or ""
+    if declarations.strip() and declarations.strip() not in req.code:
+        full_code = f"{declarations}\n\n{req.code}"
+    else:
+        full_code = req.code
+
+    return run_exercise_code(exercise.language, full_code, test_cases)
 
 
 @router.get("/sections/{section_id}/exercises")

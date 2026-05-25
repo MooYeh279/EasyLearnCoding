@@ -1,9 +1,16 @@
-BASH_HARNESS = """\
+BASH_HARNESS = r"""
 __results='['
 _first_test=1
 
-escaped() { printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g; s/\x0a/\\\\n/g; s/\x0d/\\\\r/g; s/\x09/\\\\t/g'; }
-export -f escaped
+__escaped() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
 
 __test__() {
     local name="$1"; shift
@@ -16,9 +23,9 @@ __test__() {
         __results+=','
     fi
     if [ "$actual" = "$expected" ]; then
-        __results+='{"name":"'"$(escaped "$name")"'","passed":true}'
+        __results+='{"name":"'"$(__escaped "$name")"'","passed":true}'
     else
-        __results+='{"name":"'"$(escaped "$name")"'","passed":false,"error":"Got: '"$(escaped "$actual")"'"}'
+        __results+='{"name":"'"$(__escaped "$name")"'","passed":false,"error":"Got: '"$(__escaped "$actual")"'"}'
     fi
 }
 

@@ -29,6 +29,11 @@ if "topic_id" not in [c["name"] for c in insp.get_columns("exercises")]:
         conn.execute(sqlalchemy.text("ALTER TABLE exercises ADD COLUMN topic_id INTEGER REFERENCES topics(id)"))
         conn.commit()
 
+if "declarations" not in [c["name"] for c in insp.get_columns("exercises")]:
+    with engine.connect() as conn:
+        conn.execute(sqlalchemy.text("ALTER TABLE exercises ADD COLUMN declarations TEXT DEFAULT ''"))
+        conn.commit()
+
 def override_get_db():
     db = TestingSessionLocal()
     try:

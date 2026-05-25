@@ -1,5 +1,14 @@
 JAVASCRIPT_HARNESS = """\
 const __results__ = [];
+function __deepEq__(a, b) {
+    if (a === b) return true;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== 'object' || a === null || b === null) return false;
+    const ak = Object.keys(a), bk = Object.keys(b);
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) { if (!__deepEq__(a[k], b[k])) return false; }
+    return true;
+}
 function __assert__(cond, msg) {
     if (!cond) throw new Error(msg || "assertion failed");
 }

@@ -79,6 +79,12 @@ def migrate():
             conn.execute(sql("DROP TABLE exercises"))
             conn.execute(sql("ALTER TABLE exercises_new RENAME TO exercises"))
             conn.commit()
+    if not _column_exists("exercises", "declarations"):
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text(
+                "ALTER TABLE exercises ADD COLUMN declarations TEXT DEFAULT ''"
+            ))
+            conn.commit()
 
 
 def get_db():

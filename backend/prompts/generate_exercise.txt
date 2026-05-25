@@ -24,11 +24,22 @@ STEP 1 — Write the SOLUTION.
   Write complete, correct {language_name} code. This is the source of truth.
   Mentally run it with sample inputs to confirm it works.
 
-STEP 2 — Describe TEST_CASES.
+STEP 2 — Extract DECLARATIONS (optional).
+  If your solution defines enum / type / interface / struct that the student
+  must see to understand the exercise, list them here.  The starter template
+  is auto-generated from your solution, so declarations are usually included
+  there automatically.  Only fill this field if you need to ensure certain
+  type definitions are available at runtime even if the student deletes them.
+  If not needed, leave this field empty.
+
+STEP 3 — Describe TEST_CASES.
   For each test case, provide:
     - name: a short descriptive name (in {content_language})
     - input: the function call expression, e.g. add(1, 2)
     - expected: the expected return value as a {language_name} literal
+  Rules for "input":
+    - MUST be a self-contained expression — no references to undeclared variables.
+      All data must be embedded inline (e.g. [1,2,3] or (int[]){{1,2,3}}).
   Rules for "expected":
     - Numbers: just the number → "3"
     - Strings: include the quotes → '"hello"'
@@ -37,7 +48,7 @@ STEP 2 — Describe TEST_CASES.
   If the return value is a string, set is_string to true.
   Produce 3-5 cases: basic usage, edge cases.
 
-STEP 3 — List FUNCTION_SIGNATURES.
+STEP 4 — List FUNCTION_SIGNATURES.
   For each function/class the student must implement, provide:
     - name: function name
     - params: parameter list as it appears in the definition
@@ -46,7 +57,7 @@ STEP 3 — List FUNCTION_SIGNATURES.
       e.g. "" (Python/Bash) or ": number" (TypeScript) or "int" (C/C++)
       For void functions use "void".
 
-STEP 4 — Write QUESTION and HINTS.
+STEP 5 — Write QUESTION and HINTS.
   Question: describe the problem in {content_language}. Include function names and 1-2 examples.
   Hints: 2-3 constructive hints in {content_language}.
 
@@ -55,6 +66,8 @@ STEP 4 — Write QUESTION and HINTS.
 2. For each test case: mentally trace the solution → return value matches expected
 3. function_signatures match the function names in solution
 4. All code is in {language_name} — NOT a different language
+5. Every "input" expression is self-contained — no undeclared variable references
+6. If the function signature references enums/types/interfaces, they are in "declarations"
 
 If ANY check fails → go back and fix it NOW.
 
@@ -65,6 +78,7 @@ Output ONLY valid JSON (no markdown wrapping, no code fences):
 {{
   "question": "...",
   "solution": "...",
+  "declarations": "enum Status {{ Active, Inactive }}",
   "function_signatures": [
     {{"name": "functionName", "params": "...", "return_type": "..."}}
   ],

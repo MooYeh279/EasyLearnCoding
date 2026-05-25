@@ -114,6 +114,7 @@ class Exercise(Base):
     template = Column(Text, default="")
     test_cases = Column(Text, default="")
     solution = Column(Text, default="")
+    declarations = Column(Text, default="")
     language = Column(String(20), default="python", nullable=False)
     knowledge_tags = Column(JSON, default=list)
     hints = Column(JSON, default=list)

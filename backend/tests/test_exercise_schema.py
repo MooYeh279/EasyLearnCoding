@@ -74,6 +74,35 @@ def test_empty_hints_raises():
         })
 
 
+def test_declarations_field_default_empty():
+    from services.exercise_schema import RawExerciseOutput
+
+    data = {
+        "question": "Write a function",
+        "solution": "def add(a, b): return a + b",
+        "function_signatures": [{"name": "add", "params": "a, b", "return_type": ""}],
+        "test_cases": [{"name": "basic", "input": "add(1,2)", "expected": "3"}],
+        "hints": ["hint"],
+    }
+    result = RawExerciseOutput.model_validate(data)
+    assert result.declarations == ""
+
+
+def test_declarations_field_with_enum():
+    from services.exercise_schema import RawExerciseOutput
+
+    data = {
+        "question": "Check status",
+        "solution": "def isActive(s): return s == Status.Active",
+        "function_signatures": [{"name": "isActive", "params": "s: Status", "return_type": ": boolean"}],
+        "test_cases": [{"name": "active", "input": "isActive(Status.Active)", "expected": "true"}],
+        "declarations": "enum Status { Active, Inactive }",
+        "hints": ["hint"],
+    }
+    result = RawExerciseOutput.model_validate(data)
+    assert result.declarations == "enum Status { Active, Inactive }"
+
+
 def test_validation_result_model():
     from services.exercise_schema import ValidationResult
 

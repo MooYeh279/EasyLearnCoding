@@ -10,7 +10,7 @@ import time
 from logger import get_logger
 from services.assertion_generator import generate_assertions
 from services.exercise_schema import RawExerciseOutput, TestCaseSpec, ValidationResult
-from services.template_generator import generate_template, verify_signatures_in_solution
+from services.template_generator import generate_template_from_solution, verify_signatures_in_solution
 from test_harnesses import BUILDERS
 
 logger = get_logger("exercise")
@@ -102,74 +102,25 @@ def _resolve_lang_config(language: str) -> dict:
         return {}
 
 
-def _is_new_format(test_cases: list[dict]) -> bool:
-    """Detect whether test_cases use new format (input/expected) or old format (assert)."""
-    if not test_cases:
-        return False
-    return "input" in test_cases[0] and "expected" in test_cases[0]
-
-
 def build_exercise_script(language: str, user_code: str, test_cases: list[dict]) -> str | None:
-    """Build a complete runnable script. Supports both old and new test case formats."""
-    if _is_new_format(test_cases):
-        specs = [
-            TestCaseSpec(
-                name=tc["name"],
-                input=tc["input"],
-                expected=tc["expected"],
-                is_string=tc.get("is_string", False),
-            )
-            for tc in test_cases
-        ]
-        return build_exercise_script_v2(language, user_code, specs)
+    """Build a complete runnable script from user code and test cases.
 
-    # Old format: build assertions inline
+    test_cases must be dicts with keys: name, input, expected, is_string (optional).
+    """
     builder = BUILDERS.get(language)
     if not builder:
         return None
-    test_lines: list[str] = []
-    test_fn_counter = 0
-    for tc in test_cases:
-        name = tc["name"]
-        escaped_name = name.replace("\\", "\\\\").replace('"', '\\"')
-        assertion = tc["assert"]
-        if language == "python":
-            if assertion.startswith("assert "):
-                expr = assertion[7:]
-                test_lines.append(f'__test__("{escaped_name}", lambda: __assert__({expr}))')
-            else:
-                fn_name = f"__test_fn_{test_fn_counter}"
-                test_fn_counter += 1
-                lines: list[str] = []
-                for line in assertion.split(";"):
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    if stripped.startswith("assert "):
-                        lines.append(f"    __assert__({stripped[7:]})")
-                    else:
-                        lines.append(f"    {stripped}")
-                body = "\n".join(lines)
-                test_lines.append(f"def {fn_name}():\n{body}")
-                test_lines.append(f'__test__("{escaped_name}", {fn_name})')
-        elif language in ("javascript", "typescript"):
-            test_lines.append(f'__test__("{escaped_name}", () => {{ {assertion} }})')
-        elif language in ("c", "cpp"):
-            test_lines.append(f'__TEST__("{escaped_name}", ({assertion}));')
-        elif language == "bash":
-            test_lines.append(assertion)
-    test_cases_str = "\n".join(test_lines)
-    return builder(user_code, test_cases_str)
 
-
-def build_exercise_script_v2(
-    language: str, user_code: str, test_cases: list[TestCaseSpec],
-) -> str | None:
-    """Build a runnable script using new-format test cases and assertion generator."""
-    builder = BUILDERS.get(language)
-    if not builder:
-        return None
-    assertions = generate_assertions(language, test_cases)
+    specs = [
+        TestCaseSpec(
+            name=tc["name"],
+            input=tc["input"],
+            expected=tc["expected"],
+            is_string=tc.get("is_string", False),
+        )
+        for tc in test_cases
+    ]
+    assertions = generate_assertions(language, specs)
     if not assertions:
         return None
     return builder(user_code, assertions)
@@ -177,10 +128,13 @@ def build_exercise_script_v2(
 
 def run_exercise_code(
     language: str, user_code: str, test_cases: list[dict],
+    *, label: str = "user",
 ) -> dict:
-    """Execute user code against test cases. Supports both old and new formats.
+    """Execute user code against test cases.
 
     Returns the parsed results dict (same format as parse_test_results).
+    *label* is used in log messages to distinguish solution validation
+    from template validation ("solution" / "template" / "user").
     """
     script = build_exercise_script(language, user_code, test_cases)
     if script is None:
@@ -231,6 +185,10 @@ def run_exercise_code(
                 env=env,
             )
             if compile_result.returncode != 0:
+                logger.warning(
+                    "C/C++ compilation failed for %s script:\n--- SCRIPT ---\n%s\n--- STDERR ---\n%s",
+                    language, script[:2000], compile_result.stderr[:1000],
+                )
                 return {
                     "results": [],
                     "all_passed": False,
@@ -259,8 +217,8 @@ def run_exercise_code(
         parsed = parse_test_results(output, duration_ms)
         if not parsed.get("results") and not parsed.get("all_passed"):
             logger.warning(
-                "Execution produced no results. rc=%d stdout=[%s] stderr=[%s]",
-                result.returncode,
+                "[%s] Execution produced no results. rc=%d stdout=[%s] stderr=[%s]",
+                label, result.returncode,
                 (result.stdout or "")[-500:],
                 (result.stderr or "")[-500:],
             )
@@ -279,7 +237,7 @@ def run_exercise_code(
                     pass
 
 
-def validate_exercise_v2(
+def validate_exercise(
     language: str, exercise: RawExerciseOutput,
 ) -> ValidationResult:
     """5-layer validation pipeline.
@@ -301,7 +259,7 @@ def validate_exercise_v2(
 
     # Layer 3+4: Compile and run
     test_dicts = [tc.model_dump() for tc in exercise.test_cases]
-    run_result = run_exercise_code(language, exercise.solution, test_dicts)
+    run_result = run_exercise_code(language, exercise.solution, test_dicts, label="solution")
 
     if run_result.get("error", "").startswith("Compilation failed"):
         return ValidationResult(
@@ -323,9 +281,9 @@ def validate_exercise_v2(
         )
 
     # Layer 5: Template validation
-    template = generate_template(language, exercise.function_signatures)
+    template = generate_template_from_solution(exercise.solution, language)
     if template:
-        template_run = run_exercise_code(language, template, test_dicts)
+        template_run = run_exercise_code(language, template, test_dicts, label="template")
         if template_run.get("error", "").startswith("Compilation failed"):
             return ValidationResult(
                 valid=False,
@@ -339,9 +297,3 @@ def validate_exercise_v2(
         error="",
         test_results=run_result,
     )
-
-
-# Backward-compatible alias for old code paths
-def validate_exercise(language: str, solution: str, test_cases: list[dict]) -> dict:
-    """Run reference solution against test cases (backward-compatible entry point)."""
-    return run_exercise_code(language, solution, test_cases)
