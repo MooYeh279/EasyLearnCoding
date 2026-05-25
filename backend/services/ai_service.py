@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import platform
 import re
@@ -172,121 +174,80 @@ async def generate_lesson_async(topic_title: str, language_name: str, section_ti
         raise
 
 
-def _assertion_syntax_for(language_name: str) -> str:
-    """Return the complete assertion format guide for test_cases[].assert per language."""
-    guides = {
-        "python": (
-            "Each test_cases[].assert is a Python assert expression:\n"
-            "  `assert add(1, 2) == 3`\n"
-            "For multi-statement tests, separate with `;`:\n"
-            "  `x = add(1, 2); assert x == 3`"
-        ),
-        "javascript": (
-            "The code that runs inside a test function. Use __assert__() to check results:\n"
-            '  `__assert__(add(1, 2) === 3, "1+2 should be 3")`\n'
-            "__assert__(cond, msg) throws an Error if cond is false. "
-            "For multi-step tests, use multiple statements separated by newlines."
-        ),
-        "typescript": (
-            "The code that runs inside a test function. Use __assert__() to check results:\n"
-            '  `__assert__(add(1, 2) === 3, "1+2 should be 3")`\n'
-            "__assert__(cond, msg) throws an Error if cond is false. "
-            "For multi-step tests, use multiple statements separated by newlines."
-        ),
-        "c": (
-            "Each test_cases[].assert is a C expression (it will be wrapped by the test runner):\n"
-            "  `add(1, 2) == 3`\n"
-            "For strings: `strcmp(result, \"expected\") == 0`"
-        ),
-        "cpp": (
-            "Each test_cases[].assert is a C++ expression (it will be wrapped by the test runner):\n"
-            "  `add(1, 2) == 3`\n"
-            "For strings: `strcmp(result, \"expected\") == 0`"
-        ),
-        "bash": (
-            "Each test_cases[].assert uses the __test__ function:\n"
-            '  `__test__ "test name" "expected output" your_function arg1 arg2`\n'
-            "The __test__ function captures stdout and compares it to the expected string."
-        ),
-    }
-    return guides.get(language_name, "Use assert statements")
+def _strip_markdown_fences(text: str) -> str:
+    """Remove markdown code fences wrapping JSON output."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        start = 1
+        end = len(lines) if lines[-1].strip() != "```" else len(lines) - 1
+        text = "\n".join(lines[start:end])
+    return text
 
 
-def _template_example_for(language_name: str) -> str:
-    """Return a single template example for the target language only."""
-    examples = {
-        "python": 'def add(a, b):\n    # TODO: return the sum\n    pass',
-        "javascript": 'function add(a, b) {\n  // TODO: return a + b\n}',
-        "typescript": 'function add(a: number, b: number): number {\n  // TODO: return a + b\n}',
-        "c": 'int add(int a, int b) {\n    /* TODO: return the sum */\n}',
-        "cpp": 'int add(int a, int b) {\n    // TODO: return the sum\n}',
-        "bash": 'add() {\n  # TODO: return the sum\n  local result=$(( $1 + $2 ))\n  echo "$result"\n}',
-    }
-    return examples.get(language_name, examples["python"])
-
-
-def _parse_exercise_json(text: str) -> dict:
-    """Parse AI-generated JSON with tolerance for common formatting issues.
-
-    Handles:
-    - Invalid JSON escape sequences (\\w, \\s, Windows paths, etc.)
-    - Trailing commas before closing brackets/braces
-    - Text surrounding the JSON object (markdown, explanations, etc.)
-    """
-    # Try strict parse first
+def _extract_and_repair_json(text: str) -> str:
+    """Extract JSON object from surrounding text and repair common issues."""
     try:
-        return json.loads(text)
+        json.loads(text)
+        return text
     except json.JSONDecodeError:
         pass
 
-    # Extract JSON object from surrounding text (find outermost { })
     json_start = text.find("{")
-    if json_start != -1:
-        depth = 0
-        in_string = False
-        escape = False
-        json_end = -1
-        for i in range(json_start, len(text)):
-            ch = text[i]
-            if escape:
-                escape = False
-                continue
-            if ch == "\\":
-                escape = True
-            elif ch == '"' and not escape:
-                in_string = not in_string
-            elif not in_string:
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        json_end = i + 1
-                        break
-        if json_end != -1:
-            text = text[json_start:json_end]
+    if json_start == -1:
+        return text
 
-    fixed = text
+    depth = 0
+    in_string = False
+    escape = False
+    json_end = -1
+    for i in range(json_start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+        elif ch == '"' and not escape:
+            in_string = not in_string
+        elif not in_string:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    json_end = i + 1
+                    break
+    if json_end != -1:
+        text = text[json_start:json_end]
 
-    # Fix invalid escape sequences: backslash not followed by a valid JSON escape
-    # Valid JSON escapes: \"  \\  \/  \b  \f  \n  \r  \t  \uXXXX
     fixed = re.sub(
         r'\\(?![\\"/bfnrt]|u[0-9A-Fa-f]{4})',
         r'\\\\',
-        fixed,
+        text,
     )
-
-    # Fix trailing commas: ,]  ,}
     fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
+    return fixed
+
+
+def parse_exercise_output(raw_text: str) -> RawExerciseOutput:
+    """Parse and validate AI output into RawExerciseOutput.
+
+    Strips markdown fences, extracts JSON, repairs common issues,
+    then validates with Pydantic. Raises on unrecoverable errors.
+    """
+    from services.exercise_schema import RawExerciseOutput
+
+    text = _strip_markdown_fences(raw_text)
+    repaired = _extract_and_repair_json(text)
 
     try:
-        return json.loads(fixed)
+        parsed = json.loads(repaired)
     except json.JSONDecodeError as e:
-        logger.warning(
-            "Failed to parse exercise JSON after repair: %s. Raw (last 500): %s",
-            e, text[-500:],
-        )
+        logger.warning("Failed to parse exercise JSON after repair: %s", e)
         raise
+
+    return RawExerciseOutput.model_validate(parsed)
 
 
 async def generate_exercise_async(
@@ -296,12 +257,14 @@ async def generate_exercise_async(
     knowledge_description: str,
     content_language: str = "zh",
     error_feedback: str | None = None,
-) -> dict:
-    """Generate a coding exercise via AI. Returns parsed JSON dict.
+) -> RawExerciseOutput:
+    """Generate a coding exercise via AI. Returns validated RawExerciseOutput.
 
     Set error_feedback to include a previous validation failure so the AI
     can fix syntax/runtime errors in the solution.
     """
+    from services.exercise_schema import RawExerciseOutput
+
     content_lang_name = _lang_name(content_language)
     logger.info(
         "Generating exercise for '%s/%s' (%s) in %s",
@@ -316,8 +279,6 @@ async def generate_exercise_async(
             knowledge_description=knowledge_description,
             content_language=content_lang_name,
             platform_info=get_platform_info(),
-            assertion_syntax=_assertion_syntax_for(language_name),
-            template_example=_template_example_for(language_name),
         )
         messages = [
             {"role": "system", "content": prompt},
@@ -327,10 +288,10 @@ async def generate_exercise_async(
             messages.append({
                 "role": "user",
                 "content": (
-                    f"The previous solution failed to run with these errors:\n{error_feedback}\n\n"
+                    f"The previous exercise had these errors:\n{error_feedback}\n\n"
                     "IMPORTANT: Make sure the 'solution' field contains valid, runnable "
-                    f"{language_name} code with NO syntax errors (indentation, missing colons, "
-                    "unbalanced brackets, etc.). Verify the code can actually execute."
+                    f"{language_name} code with NO syntax errors. "
+                    "Verify the code can actually execute."
                 ),
             })
 
@@ -339,14 +300,13 @@ async def generate_exercise_async(
             messages=messages,
             temperature=AI_GENERATION_TEMPERATURE,
         )
-        result = result.strip()
-        if result.startswith("```"):
-            lines = result.split("\n")
-            result = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        parsed = _parse_exercise_json(result)
+        exercise = parse_exercise_output(result)
         elapsed = time.perf_counter() - start
-        logger.info("Exercise generated: %d test cases (%.2fs)", len(parsed.get("test_cases", [])), elapsed)
-        return parsed
+        logger.info(
+            "Exercise generated: %d test cases (%.2fs)",
+            len(exercise.test_cases), elapsed,
+        )
+        return exercise
     except Exception:
         elapsed = time.perf_counter() - start
         logger.exception("Exercise generation failed for '%s' (%.2fs)", section_title, elapsed)
