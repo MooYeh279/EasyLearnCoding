@@ -136,7 +136,9 @@ learn-code --reload
 
     ![](assets/codes.jpg)
 
-6. 课程学完后可生成配套 **编程练习题**，在 Monaco Editor 中编写代码并提交，系统自动判题
+6. 课程学完后可生成配套 **编程练习题**，在 Monaco Editor 中编写代码并提交，系统基于测试用例自动判题
+
+    ![](assets/exercise.jpg)
 
 7. 遇到问题随时使用右侧 **AI 助手** 提问
 
