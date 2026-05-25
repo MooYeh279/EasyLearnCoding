@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class FunctionSignature(BaseModel):
     name: str = Field(min_length=1)
-    params: str = Field(min_length=1)
+    params: str = ""
     return_type: str = ""
 
 
