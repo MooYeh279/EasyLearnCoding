@@ -7,9 +7,19 @@ CPP_HARNESS = """\
 #include <vector>
 #include <algorithm>
 
+static constexpr double _EPS = 1e-4;
+
 #define __TEST__(name, expr) do { \\
     if (!_first_test) _json_out << ","; \\
     if (expr) _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":true}"; \\
+    else _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}"; \\
+    _first_test = 0; \\
+} while(0)
+
+#define __APPROX__(name, actual, expected) do { \\
+    if (!_first_test) _json_out << ","; \\
+    double _a = (double)(actual); double _e = (double)(expected); \\
+    if (std::fabs(_a - _e) < _EPS) _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":true}"; \\
     else _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}"; \\
     _first_test = 0; \\
 } while(0)

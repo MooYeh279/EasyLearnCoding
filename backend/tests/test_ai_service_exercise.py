@@ -69,3 +69,60 @@ def test_parse_exercise_output_with_trailing_commas():
     raw = '{"question":"q","solution":"s","function_signatures":[{"name":"f","params":"","return_type":""}],"test_cases":[{"name":"t","input":"f()","expected":"1",}],"hints":["h",]}'
     result = parse_exercise_output(raw)
     assert result.question == "q"
+
+
+class TestCellsToText:
+    """Tests for _cells_to_text and _build_knowledge_summary in exercises router."""
+
+    def test_plain_text_passthrough(self):
+        from routers.exercises import _cells_to_text
+        assert _cells_to_text("hello world") == "hello world"
+
+    def test_empty_string(self):
+        from routers.exercises import _cells_to_text
+        assert _cells_to_text("") == ""
+
+    def test_json_cells_markdown_only(self):
+        from routers.exercises import _cells_to_text
+        cells = json.dumps([
+            {"id": "a1", "type": "markdown", "content": "# Intro\nSome text"},
+            {"id": "a2", "type": "markdown", "content": "## Details"},
+        ])
+        result = _cells_to_text(cells)
+        assert "# Intro\nSome text" in result
+        assert "## Details" in result
+
+    def test_json_cells_mixed(self):
+        from routers.exercises import _cells_to_text
+        cells = json.dumps([
+            {"id": "a1", "type": "markdown", "content": "Here is code:"},
+            {"id": "a2", "type": "code", "language": "python", "code": "print(1)", "output": None},
+        ])
+        result = _cells_to_text(cells)
+        assert "Here is code:" in result
+        assert "```python" in result
+        assert "print(1)" in result
+
+    def test_invalid_json_fallback(self):
+        from routers.exercises import _cells_to_text
+        assert _cells_to_text("[broken json") == "[broken json"
+
+
+class TestBuildKnowledgeSummary:
+    def test_extracts_cell_content(self):
+        from routers.exercises import _build_knowledge_summary
+
+        class FakeLesson:
+            def __init__(self, title, content):
+                self.title = title
+                self.content = content
+
+        cells = json.dumps([
+            {"id": "a1", "type": "markdown", "content": "Key concept: closures"},
+            {"id": "a2", "type": "code", "language": "python", "code": "def outer():\n    x=1", "output": None},
+        ])
+        lessons = [FakeLesson("Closures", cells)]
+        result = _build_knowledge_summary(lessons)
+        assert "# Closures" in result
+        assert "Key concept: closures" in result
+        assert "```python" in result

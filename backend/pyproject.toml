@@ -33,3 +33,10 @@ py-modules = ["config", "database", "models", "seed", "logger", "main", "cli"]
 where = ["."]
 include = ["routers*", "services*", "llm*"]
 exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+]

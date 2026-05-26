@@ -106,7 +106,7 @@ def _strip_python(solution: str) -> str:
             continue
 
         # def or class block header
-        if stripped.startswith(("def ", "class ")) and line.rstrip().endswith(":"):
+        if stripped.startswith(("def ", "async def ", "class ")) and line.rstrip().endswith(":"):
             result.append(line)
             # For class: process inner members instead of skipping the whole body
             if stripped.startswith("class "):
@@ -158,8 +158,8 @@ def _process_python_class_body(
             i += 1
             continue
 
-        # Method header (def inside the class)
-        if stripped.startswith("def ") and line.rstrip().endswith(":"):
+        # Method header (def / async def inside the class)
+        if stripped.startswith(("def ", "async def ")) and line.rstrip().endswith(":"):
             result.append(line)
             i = _append_python_body_pass(lines, i, result, indent)
             continue

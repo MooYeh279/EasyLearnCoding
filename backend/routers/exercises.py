@@ -21,14 +21,36 @@ MAX_STRUCTURE_RETRIES = 2
 _regenerating: set[int] = set()
 
 
-def _build_knowledge_summary(lessons, max_chars_per_lesson: int = 500) -> str:
+def _cells_to_text(content: str) -> str:
+    """Extract readable markdown from JSON cell array stored in lesson.content."""
+    if not content or not content.startswith("["):
+        return content or ""
+    try:
+        cells = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return content
+    parts = []
+    for cell in cells:
+        if isinstance(cell, dict):
+            cell_type = cell.get("type", "")
+            if cell_type == "markdown":
+                parts.append(cell.get("content", ""))
+            elif cell_type == "code":
+                lang = cell.get("language", "")
+                code = cell.get("code", "")
+                parts.append(f"```{lang}\n{code}\n```")
+    return "\n\n".join(parts)
+
+
+def _build_knowledge_summary(lessons, max_chars_per_lesson: int = 2000) -> str:
     """Build a knowledge description from lesson content."""
     parts = []
     for l in lessons:
-        content = (l.content or "").strip()
-        if content:
-            preview = content[:max_chars_per_lesson]
-            if len(content) > max_chars_per_lesson:
+        raw = (l.content or "").strip()
+        text = _cells_to_text(raw) if raw else ""
+        if text:
+            preview = text[:max_chars_per_lesson]
+            if len(text) > max_chars_per_lesson:
                 preview += "..."
             parts.append(f"# {l.title}\n{preview}")
         else:
@@ -175,7 +197,7 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
     sections = db.query(Section).filter(Section.topic_id == topic_id).all()
     section_ids = [s.id for s in sections]
     lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
-    knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=300)
+    knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=500)
 
     exercise, validation, template = await _generate_validated_exercise(
         language_name=language_name,
@@ -256,7 +278,7 @@ async def regenerate_exercise(exercise_id: int, db: Session = Depends(get_db)):
                 sections = db.query(Section).filter(Section.topic_id == existing.topic_id).all()
                 section_ids = [s.id for s in sections]
                 lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
-                knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=300)
+                knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=500)
 
         exercise, validation, template = await _generate_validated_exercise(
             language_name=language_name,

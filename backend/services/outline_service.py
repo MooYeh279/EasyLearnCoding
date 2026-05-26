@@ -1,17 +1,187 @@
 import json
+import os
+import platform
 import re
+import subprocess
+import tempfile
 import uuid
-import asyncio
 from sqlalchemy.orm import Session
 from models import Topic, TopicOutline, Section, TopicStatus
 from logger import get_logger
-from config import AI_MAX_CONCURRENCY, CELL_ID_LENGTH
+from config import CELL_ID_LENGTH
 
 logger = get_logger("outline")
 
+_IS_WIN = platform.system() == "Windows"
 
 # Languages that produce runnable code cells (not display-only blocks)
 _CODE_LANGUAGES = {"python", "javascript", "typescript", "bash", "shell", "c", "cpp", "cmd", "powershell", "bat", "ps1"}
+
+# ── Syntax validation ────────────────────────────────────────────────────
+
+def _validate_syntax(language: str, code: str) -> bool:
+    """Check whether *code* is syntactically valid in *language*.
+
+    Returns True if syntax is valid, False otherwise.
+    Uses lightweight checks (AST parse for Python, --check for node/bash,
+    -fsyntax-only for C/C++).
+    """
+    code = code.strip()
+    if not code:
+        return False
+
+    try:
+        if language == "python":
+            compile(code, "<string>", "exec")
+            return True
+        elif language in ("javascript", "typescript"):
+            return _check_node_syntax(code, language)
+        elif language in ("bash", "shell"):
+            return _check_bash_syntax(code)
+        elif language == "c":
+            return _check_gcc_syntax(code, "c")
+        elif language == "cpp":
+            return _check_gcc_syntax(code, "c++")
+        elif language in ("powershell", "ps1"):
+            return _check_powershell_syntax(code)
+        elif language in ("cmd", "bat"):
+            return True
+        else:
+            return True
+    except Exception:
+        return False
+
+
+def _check_node_syntax(code: str, language: str) -> bool:
+    """Check JS syntax via node --check, TS via tsc --noEmit."""
+    if language == "typescript":
+        return _check_tsc_syntax(code)
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(code)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                ["node", "--check", tmp_path],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=10, shell=_IS_WIN,
+            )
+            return result.returncode == 0
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
+
+
+def _check_tsc_syntax(code: str) -> bool:
+    """Check TypeScript syntax via tsc --noEmit."""
+    import shutil
+    if not shutil.which("tsc") and not shutil.which("npx"):
+        return True
+    try:
+        tmp_dir = tempfile.mkdtemp()
+        tmp_path = os.path.join(tmp_dir, "check.ts")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(code)
+        try:
+            result = subprocess.run(
+                ["npx", "tsc", "--noEmit", tmp_path],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+                shell=_IS_WIN, cwd=tmp_dir,
+            )
+            return result.returncode == 0
+        finally:
+            try:
+                os.unlink(tmp_path)
+                os.rmdir(tmp_dir)
+            except OSError:
+                pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
+
+
+def _check_bash_syntax(code: str) -> bool:
+    """Check bash syntax via bash -n."""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(code)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                ["bash", "-n", tmp_path],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=10, shell=_IS_WIN,
+            )
+            return result.returncode == 0
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
+
+
+def _check_powershell_syntax(code: str) -> bool:
+    """Check PowerShell syntax via AST parser (ParseInput)."""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".ps1", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(code)
+            tmp_path = os.path.abspath(f.name).replace("\\", "/")
+        try:
+            check_script = (
+                "$code = Get-Content -LiteralPath '"
+                + tmp_path
+                + "' -Raw; "
+                "$parseErrors = $null; "
+                "$null = [System.Management.Automation.Language.Parser]::ParseInput("
+                "$code, [ref]$null, [ref]$parseErrors); "
+                "exit $parseErrors.Count"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", check_script],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=15, shell=_IS_WIN,
+            )
+            return result.returncode == 0
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
+
+
+def _check_gcc_syntax(code: str, lang: str) -> bool:
+    """Check C/C++ syntax via gcc/g++ -fsyntax-only."""
+    ext = ".cpp" if lang == "c++" else ".c"
+    compiler = "g++" if lang == "c++" else "gcc"
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=ext, delete=False, encoding="utf-8"
+        ) as f:
+            f.write(code)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                [compiler, "-fsyntax-only", tmp_path],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=15, shell=_IS_WIN,
+            )
+            return result.returncode == 0
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
 
 def _markdown_to_cells(md: str, default_language: str = "python") -> str:
     """Convert AI-generated Markdown into a JSON cell array for notebook rendering.
@@ -27,11 +197,6 @@ def _markdown_to_cells(md: str, default_language: str = "python") -> str:
     # Split on lines that are exactly ``` (opening or closing fence)
     blocks = re.split(r'^```', md, flags=re.MULTILINE)
 
-    # blocks[0] = text before first ``` (always markdown)
-    # blocks[1] = optional-lang\\n code after opening ```
-    # blocks[2] = text after closing ``` (markdown)
-    # blocks[3] = optional-lang\\n code after next opening ```
-    # ... alternating markdown (even) / code (odd)
     for i, block in enumerate(blocks):
         if not block.strip():
             continue
@@ -42,7 +207,6 @@ def _markdown_to_cells(md: str, default_language: str = "python") -> str:
                 "content": block.strip(),
             })
         else:
-            # First line is the language tag, rest is code
             first_newline = block.find("\n")
             if first_newline == -1:
                 lang = block.strip()
@@ -54,22 +218,29 @@ def _markdown_to_cells(md: str, default_language: str = "python") -> str:
             if not code:
                 continue
 
-            # Determine language: recognized → runnable, anything else → plaintext
-            cell_lang = lang if lang.lower() in _CODE_LANGUAGES else "txt"
-
-            cells.append({
-                "id": uuid.uuid4().hex[:CELL_ID_LENGTH],
-                "type": "code",
-                "language": cell_lang,
-                "code": code,
-                "output": None,
-            })
+            normalized_lang = lang.lower()
+            if normalized_lang in _CODE_LANGUAGES and _validate_syntax(normalized_lang, code):
+                cells.append({
+                    "id": uuid.uuid4().hex[:CELL_ID_LENGTH],
+                    "type": "code",
+                    "language": normalized_lang,
+                    "code": code,
+                    "output": None,
+                })
+            else:
+                # Syntax invalid or unrecognized — keep as markdown with original fences
+                fence = "```" + (lang if lang else "") + "\n" + code + "\n```"
+                cells.append({
+                    "id": uuid.uuid4().hex[:CELL_ID_LENGTH],
+                    "type": "markdown",
+                    "content": fence,
+                })
 
     return json.dumps(cells, ensure_ascii=False)
 
 
-def save_outline(db: Session, topic: Topic, outline_data: dict, feedback: str = None):
-    existing = db.query(TopicOutline).filter(TopicOutline.topic_id == topic.id).first()
+def save_outline(db: Session, topic_id: int, outline_data: dict, feedback: str = None):
+    existing = db.query(TopicOutline).filter(TopicOutline.topic_id == topic_id).first()
     history = []
     if existing and existing.sections_json:
         history = (existing.feedback_history or []).copy()
@@ -86,192 +257,15 @@ def save_outline(db: Session, topic: Topic, outline_data: dict, feedback: str = 
         saved = existing
     else:
         saved = TopicOutline(
-            topic_id=topic.id,
+            topic_id=topic_id,
             sections_json=outline_data,
             feedback_history=history,
         )
         db.add(saved)
 
-    topic.status = TopicStatus.outline_ready
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if topic:
+        topic.status = TopicStatus.outline_ready
     db.commit()
     db.refresh(saved)
     return saved
-
-
-def generate_content_concurrent(db: Session, topic: Topic, language_name: str,
-                                 content_language: str = "zh", max_concurrency: int = AI_MAX_CONCURRENCY):
-    from models import Lesson as LessonModel, LessonType
-    from services.ai_service import generate_lesson_async
-
-    topic.status = TopicStatus.generating_content
-    topic.generation_progress = {"current": 0, "total": 0, "current_section": "", "current_lesson": ""}
-    db.commit()
-
-    topic_title = topic.title
-    topic_id = topic.id
-
-    try:
-        outline = db.query(TopicOutline).filter(TopicOutline.topic_id == topic.id).first()
-        if not outline:
-            raise ValueError("No outline found for this topic")
-
-        sections_data = outline.sections_json["sections"]
-
-        # Build maps of existing DB state
-        existing_sec_by_title: dict[str, Section] = {}
-        for sec in topic.sections:
-            existing_sec_by_title[sec.title] = sec
-
-        outline_sec_titles = {s["title"] for s in sections_data}
-
-        lesson_map: list[dict] = []
-
-        # Sync: create/reuse sections and lessons from outline
-        for sec_idx, sec_data in enumerate(sections_data):
-            sec_title = sec_data["title"]
-
-            if sec_title in existing_sec_by_title:
-                section = existing_sec_by_title[sec_title]
-                section.order = sec_idx
-            else:
-                section = Section(
-                    topic_id=topic.id,
-                    title=sec_title,
-                    order=sec_idx,
-                )
-                db.add(section)
-                db.commit()
-
-            # Build map of existing lessons for this section
-            # Re-query to get current state
-            existing_les_by_title: dict[str, LessonModel] = {}
-            for les in section.lessons:
-                existing_les_by_title[les.title] = les
-
-            outline_les_titles = {l["title"] for l in sec_data.get("lessons", [])}
-
-            # Remove lessons no longer in outline
-            for les in section.lessons:
-                if les.title not in outline_les_titles:
-                    db.delete(les)
-            db.commit()
-
-            # Create/reuse lessons
-            for les_idx, les_data in enumerate(sec_data.get("lessons", [])):
-                les_title = les_data["title"]
-
-                if les_title in existing_les_by_title:
-                    lesson = existing_les_by_title[les_title]
-                    lesson.order = les_idx
-                    # Only generate if content is empty or failed
-                    needs_gen = (not lesson.content or not lesson.content.startswith('[{"id":')
-                                 or 'Generation failed' in lesson.content
-                                 or lesson.content.strip() == '[]')
-                    if needs_gen:
-                        lesson_map.append({
-                            "section_title": sec_title,
-                            "lesson_title": les_title,
-                            "lesson_id": lesson.id,
-                        })
-                else:
-                    lesson = LessonModel(
-                        section_id=section.id,
-                        title=les_title,
-                        order=les_idx,
-                        content="",
-                        lesson_type=LessonType.concept,
-                    )
-                    db.add(lesson)
-                    db.commit()
-                    lesson_map.append({
-                        "section_title": sec_title,
-                        "lesson_title": les_title,
-                        "lesson_id": lesson.id,
-                    })
-
-        # Remove sections no longer in outline
-        for sec in topic.sections:
-            if sec.title not in outline_sec_titles:
-                db.delete(sec)
-        db.commit()
-
-        total = len(lesson_map)
-        topic.generation_progress = {"current": 0, "total": total, "current_section": "", "current_lesson": "", "failed_lesson_ids": []}
-        db.commit()
-
-        if total == 0:
-            topic.status = TopicStatus.content_ready
-            topic.generation_progress = None
-            db.commit()
-            return
-
-        failed_lesson_ids: list[int] = []
-
-        async def run_async():
-            nonlocal failed_lesson_ids
-            sem = asyncio.Semaphore(max_concurrency)
-
-            async def generate_one(task):
-                async with sem:
-                    try:
-                        content = await generate_lesson_async(
-                            topic_title=topic_title,
-                            language_name=language_name,
-                            section_title=task["section_title"],
-                            lesson_title=task["lesson_title"],
-                            content_language=content_language,
-                        )
-                        return {**task, "content": content, "error": None}
-                    except Exception as e:
-                        logger.exception("Lesson generation failed: %s/%s",
-                                         task["section_title"], task["lesson_title"])
-                        return {**task, "content": "", "error": str(e)}
-
-            tasks = [asyncio.create_task(generate_one(t)) for t in lesson_map]
-
-            completed = 0
-            for coro in asyncio.as_completed(tasks):
-                result = await coro
-                completed += 1
-
-                lesson = db.query(LessonModel).filter(LessonModel.id == result["lesson_id"]).first()
-                if lesson and result["content"]:
-                    lesson.content = _markdown_to_cells(result["content"], language_name)
-                if result["error"]:
-                    failed_lesson_ids.append(result["lesson_id"])
-
-                topic_progress = db.query(Topic).filter(Topic.id == topic_id).first()
-                if topic_progress:
-                    topic_progress.generation_progress = {
-                        "current": completed,
-                        "total": total,
-                        "current_section": result["section_title"],
-                        "current_lesson": result["lesson_title"],
-                        "failed_lesson_ids": list(failed_lesson_ids),
-                    }
-                db.commit()
-
-        try:
-            asyncio.run(run_async())
-        except Exception:
-            logger.exception("Content generation aborted")
-            topic = db.query(Topic).filter(Topic.id == topic_id).first()
-            if topic:
-                topic.status = TopicStatus.outline_ready
-                topic.generation_progress = None
-            db.commit()
-            return
-
-        topic = db.query(Topic).filter(Topic.id == topic_id).first()
-        if topic:
-            all_failed = total > 0 and len(failed_lesson_ids) == total
-            topic.status = TopicStatus.outline_ready if all_failed else TopicStatus.content_ready
-            topic.generation_progress = None if not failed_lesson_ids else {"failed_lesson_ids": failed_lesson_ids}
-        db.commit()
-    except Exception:
-        logger.exception("Content generation setup failed: topic_id=%s", topic_id)
-        topic = db.query(Topic).filter(Topic.id == topic_id).first()
-        if topic:
-            topic.status = TopicStatus.outline_ready
-            topic.generation_progress = None
-        db.commit()

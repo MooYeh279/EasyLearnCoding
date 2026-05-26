@@ -30,54 +30,32 @@ The ENTIRE lesson is a Markdown document. Every code fence MUST follow these rul
   ```
 
   NEVER use bare ``` without a language tag. Always specify either
-  {language_name} (for runnable code) or txt (for output display).
+  {language_name} (for code) or txt (for output display).
 
-─── Syntax Examples vs Runnable Code ────────────────────────────────────
-
-Syntax examples (snippets that illustrate grammar, variable declarations,
-or isolated expressions) MUST be tab-indented so the system can tell them
-apart from complete runnable programs. Runnable code MUST NOT be indented.
-
-  CORRECT — example block (tab-indented, display-only):
-      ```{language_name}
-      int a = 10;
-      double b = 3.14;
-      ```
-
-  CORRECT — runnable block (no indentation, student can execute):
-  ```{language_name}
-  int main() {{
-      int a = 10;
-      printf("%d\\n", a);
-      return 0;
-  }}
-  ```
-
-Tab-indented blocks are rendered as formatted reference code for the
-student to read. Non-indented blocks become interactive cells that the
-student can edit and run. Use tab-indented blocks for grammar
-illustrations, syntax snapshots, and partial code snippets — anything
-that is NOT a complete, independently-runnable program. Use non-indented
-blocks only for fully self-contained programs.
+A code block becomes a runnable cell only if its syntax is valid. Blocks
+with syntax errors are automatically displayed as plain text. The system
+checks syntax automatically.
 
 ─── Code Block Requirements ──────────────────────────────────────────────
 
-EVERY runnable (non-indented) code block MUST be independently runnable:
-- Each code block must include ALL necessary imports at the top. Do NOT rely on imports from
-  earlier blocks.
-- Each code block must be a complete, self-contained program that can be copied and executed
-  as-is. No partial snippets, no "..." ellipsis, no "// rest of the code" placeholders.
-- NEVER redefine the same variable name for different purposes across runnable code blocks in
-  the same lesson. If block A defines `data = [1,2,3]`, block B must NOT define `data = "hello"`.
-  Use distinct variable names or build on the same concept consistently.
-- If multiple runnable code blocks demonstrate the same evolving example, explicitly label them
-  as "Step 1", "Step 2", etc., and make each step independently runnable.
-- All runnable examples must produce visible output (print, console.log, fmt.Println, etc.) so
-  the student can see the result when they run the code.
-- Show the expected output immediately after each code block using a ```txt block.
+You can include both complete runnable programs and short syntax snippets
+in ```{language_name} blocks. The system will decide which ones become
+interactive based on syntax validity.
 
-Tab-indented example blocks do NOT need to be complete programs — their purpose is to
-illustrate syntax, not to be executed. Keep them short and focused on the concept.
+For complete programs intended to be runnable:
+- Include ALL necessary imports at the top. Do NOT rely on imports from
+  earlier blocks.
+- Each code block must be a complete, self-contained program that can be
+  copied and executed as-is. No partial snippets, no "..." ellipsis, no
+  "// rest of the code" placeholders.
+- NEVER redefine the same variable name for different purposes across code
+  blocks in the same lesson. If block A defines `data = [1,2,3]`, block B
+  must NOT define `data = "hello"`.
+- If multiple code blocks demonstrate the same evolving example, explicitly
+  label them as "Step 1", "Step 2", etc., and make each step independently runnable.
+- All runnable examples must produce visible output (print, console.log,
+  fmt.Println, etc.) so the student can see the result when they run the code.
+- Show the expected output immediately after each code block using a ```txt block.
 
 ─── Safety Rules ─────────────────────────────────────────────────────────
 

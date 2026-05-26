@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, lazy, Suspense, memo, useEffect } from 'react';
 import { Button, Tooltip, Input, Spin, Select } from 'antd';
-import { PlayCircleOutlined, EditOutlined, DeleteOutlined, UpOutlined, DownOutlined, CopyOutlined, CheckOutlined, CloseCircleOutlined, SwapOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, EditOutlined, DeleteOutlined, UpOutlined, DownOutlined, CopyOutlined, CheckOutlined, CloseCircleOutlined, SwapOutlined, CaretUpOutlined, CaretDownOutlined } from '@ant-design/icons';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -43,11 +43,13 @@ interface Props {
   onChange: (id: string, updates: Partial<NotebookCell>) => void;
   onDelete: (id: string) => void;
   onMove: (id: string, direction: 'up' | 'down') => void;
+  onInsertAbove?: () => void;
+  onInsertBelow?: () => void;
   onEditStart?: (id: string) => void;
   onEditCancel?: (id: string) => void;
 }
 
-const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, onChange, onDelete, onMove, onEditStart, onEditCancel }: Props) {
+const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, onChange, onDelete, onMove, onInsertAbove, onInsertBelow, onEditStart, onEditCancel }: Props) {
   const { t } = useContentLang();
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -206,17 +208,20 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* ── Toolbar ── */}
+      {/* ── Toolbar (hover / editing / running only) ── */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          height: 32,
-          padding: '0 10px',
+          height: (hovered || editing || running) ? 32 : 0,
+          padding: (hovered || editing || running) ? '0 10px' : 0,
           background: C.toolbarBg,
-          borderBottom: `1px solid ${C.border}`,
+          borderBottom: (hovered || editing || running) ? `1px solid ${C.border}` : 'none',
           userSelect: 'none',
+          overflow: 'hidden',
+          transition: 'height 0.15s ease, padding 0.15s ease',
+          opacity: (hovered || editing || running) ? 1 : 0,
         }}
       >
         {/* Left: language / badge */}
@@ -298,6 +303,16 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
               onClick={() => onMove(cell.id, 'down')}
             />
           </Tooltip>
+          {onInsertAbove && (
+            <Tooltip title={t('code.insertAbove')}>
+              <Button type="text" size="small" icon={<CaretUpOutlined style={iconBtnS} />} onClick={onInsertAbove} />
+            </Tooltip>
+          )}
+          {onInsertBelow && (
+            <Tooltip title={t('code.insertBelow')}>
+              <Button type="text" size="small" icon={<CaretDownOutlined style={iconBtnS} />} onClick={onInsertBelow} />
+            </Tooltip>
+          )}
         </div>
       </div>
 

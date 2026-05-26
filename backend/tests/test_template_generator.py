@@ -67,6 +67,27 @@ class TestPythonTemplate:
         assert "def first(items: List[int]) -> int:" in result
         assert "pass" in result
 
+    def test_async_def_strips_body(self):
+        solution = (
+            "import asyncio\n"
+            "\n"
+            "async def fetch_data(task_id: int, delay: float) -> str:\n"
+            "    await asyncio.sleep(delay)\n"
+            "    return f'Data from task {task_id}'\n"
+            "\n"
+            "async def concurrent_fetch(delays: list) -> list:\n"
+            "    tasks = [fetch_data(i + 1, delay) for i, delay in enumerate(delays)]\n"
+            "    return await asyncio.gather(*tasks)\n"
+        )
+        result = generate_template_from_solution(solution, "python")
+        assert "import asyncio" in result
+        assert "async def fetch_data(task_id: int, delay: float) -> str:" in result
+        assert "async def concurrent_fetch(delays: list) -> list:" in result
+        assert "await asyncio.sleep" not in result
+        assert "return f'Data" not in result
+        assert "return await asyncio.gather" not in result
+        assert result.count("pass") == 2
+
     def test_class_with_property_annotation(self):
         solution = (
             "class Person:\n"

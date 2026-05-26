@@ -140,7 +140,7 @@ def check_environment(language: str, force: bool = False) -> LanguageEnvironment
         path = cmd[0]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=ENV_CHECK_TIMEOUT,
+                cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=ENV_CHECK_TIMEOUT,
                 shell=(platform.system() == "Windows"),
             )
             output = result.stdout or ""

@@ -5,7 +5,8 @@ Teaching Language: {language_name}
 Content Language: {content_language}
 Student's Platform: {platform_info}
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this exact format. Do NOT use double quotes (")
+inside text values — they break JSON parsing. Use \\" if you must quote something.
 {{
   "sections": [
     {{

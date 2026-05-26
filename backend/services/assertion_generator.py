@@ -25,6 +25,12 @@ def _escape_name(name: str) -> str:
     return name.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _is_float_value(expr: str) -> bool:
+    """Check if an expression contains a floating-point literal (has a decimal point)."""
+    import re
+    return bool(re.search(r'\d\.\d', expr))
+
+
 def _python_assert(tc: TestCaseSpec) -> str:
     escaped = _escape_name(tc.name)
     return f'__test__("{escaped}", lambda: __assert__({tc.input} == {tc.expected}))'
@@ -40,13 +46,15 @@ def _c_assert(tc: TestCaseSpec) -> str:
     escaped = _escape_name(tc.name)
     if tc.is_string:
         return f'__TEST__("{escaped}", (strcmp({tc.input}, {tc.expected}) == 0));'
+    if _is_float_value(tc.input) or _is_float_value(tc.expected):
+        return f'__APPROX__("{escaped}", {tc.input}, {tc.expected});'
     return f'__TEST__("{escaped}", ({tc.input} == {tc.expected}));'
 
 
 def _cpp_assert(tc: TestCaseSpec) -> str:
     escaped = _escape_name(tc.name)
-    # C++ uses == for string comparison (std::string supports == with const char*).
-    # strcmp is wrong here because std::string is not implicitly convertible to const char*.
+    if _is_float_value(tc.input) or _is_float_value(tc.expected):
+        return f'__APPROX__("{escaped}", {tc.input}, {tc.expected});'
     return f'__TEST__("{escaped}", ({tc.input} == {tc.expected}));'
 
 

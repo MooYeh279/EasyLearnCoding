@@ -108,6 +108,8 @@ const zh: Record<string, string> = {
   'code.stop': '停止',
   'code.moveUp': '上移',
   'code.moveDown': '下移',
+  'code.insertAbove': '在上方插入',
+  'code.insertBelow': '在下方插入',
   'code.switchToMd': 'code → md',
   'code.switchToCode': 'md → code',
 
@@ -120,6 +122,26 @@ const zh: Record<string, string> = {
   'chat.stop': '停止',
   'chat.you': '你',
   'chat.ai': 'AI',
+  'chat.emptyHint': '针对当前课程提问',
+  'chat.thinking': '正在思考...',
+  'chat.searching': '搜索中',
+  'chat.fetching': '获取中',
+  'chat.sources': '参考来源',
+  'chat.toolCall': '工具调用',
+  'chat.toolArgs': '参数',
+  'chat.toolResult': '结果',
+  'chat.webSearch': '联网',
+  'chat.webSearchOn': '开启联网搜索',
+  'chat.webSearchOff': '关闭联网搜索',
+  'topic.agentFeed': 'AI 工作过程',
+  'topic.agentSearching': '搜索：{query}',
+  'topic.agentFetching': '获取：{url}',
+  'topic.agentFound': '找到 {count} 条结果',
+  'topic.agentFetched': '获取了 {length} 字符',
+  'topic.agentThinking': '思考中...',
+  'topic.searchCount': '{{count}} 次搜索',
+  'topic.toolActivity': '工具调用',
+  'topic.toolActivityClose': '收起',
 
   // Language-specific default code examples
   'code.exampleC': '#include <stdio.h>\n\nint main() {\n  printf("Hello, World!\\n");\n  return 0;\n}',
@@ -157,7 +179,7 @@ const zh: Record<string, string> = {
   'env.noInstallNeeded': '所有依赖已就绪，无需安装',
 
   // Model config
-  'model.title': 'AI 模型配置',
+  'model.title': '设置',
   'model.apiKey': 'API Key',
   'model.baseUrl': 'Base URL',
   'model.model': '模型名称',
@@ -171,6 +193,16 @@ const zh: Record<string, string> = {
   'model.testing': '测试中...',
   'model.testOk': '连接成功',
   'model.testFail': '连接失败',
+
+  // Search settings
+  'search.title': '联网搜索配置',
+  'search.enabledHint': '开启后，大纲和课程生成将联网检索补充知识',
+  'search.provider': '搜索引擎',
+  'search.providerHint': 'DuckDuckGo 无需配置，Tavily 需要 API Key',
+  'search.tavilyKey': 'Tavily API Key',
+  'search.tavilyKeyPlaceholder': 'tvly-...',
+  'search.provider.duckduckgo': 'DuckDuckGo (免费)',
+  'search.provider.tavily': 'Tavily (需 API Key)',
 
   // Workspace settings
   'workspace.label': '工作目录',
@@ -330,6 +362,8 @@ const en: Record<string, string> = {
   'code.stop': 'Stop',
   'code.moveUp': 'Move up',
   'code.moveDown': 'Move down',
+  'code.insertAbove': 'Insert above',
+  'code.insertBelow': 'Insert below',
   'code.switchToMd': 'code → md',
   'code.switchToCode': 'md → code',
 
@@ -342,6 +376,26 @@ const en: Record<string, string> = {
   'chat.stop': 'Stop',
   'chat.you': 'You',
   'chat.ai': 'AI',
+  'chat.emptyHint': 'Ask questions about this lesson',
+  'chat.thinking': 'Thinking...',
+  'chat.searching': 'Searching',
+  'chat.fetching': 'Fetching',
+  'chat.sources': 'Sources',
+  'chat.toolCall': 'Tool Call',
+  'chat.toolArgs': 'Arguments',
+  'chat.toolResult': 'Result',
+  'chat.webSearch': 'Web',
+  'chat.webSearchOn': 'Enable web search',
+  'chat.webSearchOff': 'Disable web search',
+  'topic.agentFeed': 'AI Process',
+  'topic.agentSearching': 'Search: {query}',
+  'topic.agentFetching': 'Fetch: {url}',
+  'topic.agentFound': 'Found {count} results',
+  'topic.agentFetched': 'Fetched {length} chars',
+  'topic.agentThinking': 'Thinking...',
+  'topic.searchCount': '{{count}} searches',
+  'topic.toolActivity': 'Tool Activity',
+  'topic.toolActivityClose': 'Hide',
 
   // Language-specific default code examples
   'code.exampleC': '#include <stdio.h>\n\nint main() {\n  printf("Hello, World!\\n");\n  return 0;\n}',
@@ -379,7 +433,7 @@ const en: Record<string, string> = {
   'env.noInstallNeeded': 'All dependencies ready, no installation needed',
 
   // Model config
-  'model.title': 'AI Model Configuration',
+  'model.title': 'Settings',
   'model.apiKey': 'API Key',
   'model.baseUrl': 'Base URL',
   'model.model': 'Model Name',
@@ -393,6 +447,16 @@ const en: Record<string, string> = {
   'model.testing': 'Testing...',
   'model.testOk': 'Connected',
   'model.testFail': 'Connection failed',
+
+  // Search settings
+  'search.title': 'Web Search',
+  'search.enabledHint': 'When enabled, outline and lesson generation will search the web for supplementary knowledge',
+  'search.provider': 'Search Engine',
+  'search.providerHint': 'DuckDuckGo requires no config; Tavily needs an API key',
+  'search.tavilyKey': 'Tavily API Key',
+  'search.tavilyKeyPlaceholder': 'tvly-...',
+  'search.provider.duckduckgo': 'DuckDuckGo (Free)',
+  'search.provider.tavily': 'Tavily (API Key)',
 
   // Workspace settings
   'workspace.label': 'Workspace',

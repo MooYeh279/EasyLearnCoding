@@ -15,6 +15,53 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function sseRequest(
+  url: string,
+  body: Record<string, unknown>,
+  onEvent: (event: import('../types').AgentEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let eventCount = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    let eventType = '';
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith('data: ')) {
+        try {
+          const parsed = JSON.parse(line.slice(6));
+          parsed._eventType = eventType;
+          onEvent(parsed);
+          // Yield to event loop every 8 events to prevent main thread blocking
+          eventCount++;
+          if (eventCount % 8 === 0) {
+            await new Promise(r => setTimeout(r, 0));
+          }
+        } catch { /* skip malformed */ }
+        eventType = '';
+      }
+    }
+  }
+}
+
 export const api = {
   // Languages
   getLanguages: () => request<import('../types').Language[]>('/languages'),
@@ -28,22 +75,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ title }),
     }),
-  getTopic: (id: number) => request<import('../types').Topic>(`/topics/${id}`),
+  getTopic: (id: number, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<import('../types').Topic>(`/topics/${id}${qs}`);
+  },
   deleteTopic: (id: number) =>
     request<void>(`/topics/${id}`, { method: 'DELETE' }),
-  generateOutline: (topicId: number, topicTitle: string, feedback?: string, contentLanguage?: string) =>
-    request<import('../types').TopicOutline>(`/topics/${topicId}/generate-outline`, {
-      method: 'POST',
-      body: JSON.stringify({ topic_title: topicTitle, feedback, content_language: contentLanguage }),
-    }),
   getOutline: (topicId: number) =>
     request<import('../types').TopicOutline>(`/topics/${topicId}/outline`),
 
-  generateContentStream: (topicId: number, contentLanguage: string) =>
-    request<{ status: string }>(`/topics/${topicId}/generate-content-stream`, {
-      method: 'POST',
-      body: JSON.stringify({ content_language: contentLanguage }),
-    }),
+  generateOutlineStream: (
+    topicId: number,
+    topicTitle: string,
+    onEvent: (event: import('../types').AgentEvent) => void,
+    feedback?: string,
+    contentLanguage?: string,
+    signal?: AbortSignal,
+  ): Promise<void> =>
+    sseRequest(
+      `${API_BASE}/topics/${topicId}/generate-outline-stream`,
+      { topic_title: topicTitle, feedback, content_language: contentLanguage || 'zh' },
+      onEvent,
+      signal,
+    ),
+
+  generateContentStream: (
+    topicId: number,
+    onEvent: (event: import('../types').AgentEvent) => void,
+    contentLanguage?: string,
+    signal?: AbortSignal,
+  ): Promise<void> =>
+    sseRequest(
+      `${API_BASE}/topics/${topicId}/generate-content-stream`,
+      { content_language: contentLanguage || 'zh' },
+      onEvent,
+      signal,
+    ),
 
   // Lessons
   getLesson: (id: number) => request<import('../types').Lesson>(`/lessons/${id}`),
@@ -106,67 +173,20 @@ export const api = {
     });
   },
 
-  // AI Chat (SSE streaming)
+  // AI Chat (SSE streaming with agent loop events)
   chat: (
     lessonId: number,
     message: string,
     history: import('../types').ChatMessage[],
-    onChunk: (text: string) => void,
-    onDone: () => void,
-    onError: (err: string) => void,
+    onEvent: (event: import('../types').AgentEvent) => void,
     signal?: AbortSignal,
-  ): Promise<void> => {
-    return new Promise(async (resolve) => {
-      try {
-        const res = await fetch(`${API_BASE}/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lesson_id: lessonId, message, history }),
-          signal,
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-          onError(err.detail || `HTTP ${res.status}`);
-          resolve();
-          return;
-        }
-        const reader = res.body!.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          let eventType = '';
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              eventType = line.slice(7).trim();
-            } else if (line.startsWith('data: ')) {
-              try {
-                const parsed = JSON.parse(line.slice(6));
-                if (eventType === 'chunk') {
-                  onChunk(parsed.text);
-                } else if (eventType === 'error') {
-                  onError(parsed.text);
-                }
-                eventType = '';
-              } catch { /* skip malformed */ }
-            }
-          }
-        }
-        onDone();
-        resolve();
-      } catch (err: any) {
-        if (err.name === 'AbortError') resolve();
-        else {
-          onError(err?.message || 'Request failed');
-          resolve();
-        }
-      }
-    });
-  },
+  ): Promise<void> =>
+    sseRequest(
+      `${API_BASE}/chat`,
+      { lesson_id: lessonId, message, history },
+      onEvent,
+      signal,
+    ),
 
   // Environment
   getEnvironment: (language: string, force?: boolean): Promise<import('../types').EnvState> =>
@@ -189,6 +209,13 @@ export const api = {
 
   testAiConnection: (config: { api_key: string; base_url: string; model: string }): Promise<{ ok: boolean; latency_ms: number; error?: string }> =>
     request('/settings/ai/test', { method: 'POST', body: JSON.stringify(config) }),
+
+  // Search Settings
+  getSearchSettings: (): Promise<{ enabled: boolean; provider: string; api_key: string }> =>
+    request('/settings/search'),
+
+  updateSearchSettings: (config: { enabled: boolean; provider: string; api_key: string }): Promise<{ message: string }> =>
+    request('/settings/search', { method: 'PUT', body: JSON.stringify(config) }),
 
   // Exercises
   generateSectionExercise: (sectionId: number) =>

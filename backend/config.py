@@ -35,7 +35,7 @@ CHAT_TEMPERATURE = 0.7
 AI_GENERATION_TEMPERATURE = 0.7
 AI_HTTP_TIMEOUT = 300            # seconds, LLM provider HTTP read timeout
 AI_HTTP_CONNECT_TIMEOUT = 10   # seconds, LLM provider HTTP connect timeout
-AI_MAX_CONCURRENCY = 8           # max parallel lesson generation calls
+AI_MAX_CONCURRENCY = 3           # max parallel lesson generation calls
 
 # ── API key masking ───────────────────────────────────────────────────
 API_KEY_MASK_PREFIX = 6

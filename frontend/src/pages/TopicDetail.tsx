@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Input, Typography, Tag, Spin, Alert, message, Progress, Space, Popconfirm } from 'antd';
 import {
@@ -10,7 +10,7 @@ import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
 import { langPlaceholder } from '../i18n/translations';
 import StatusProgress from '../components/StatusProgress';
-import type { Topic, TopicOutline, OutlineSection, Exercise } from '../types';
+import type { Topic, TopicOutline, OutlineSection, Exercise, AgentEvent } from '../types';
 import AppLayout from '../components/AppLayout';
 
 const { Text } = Typography;
@@ -97,6 +97,9 @@ export default function TopicDetail() {
   const [feedback, setFeedback] = useState('');
   const [pageLoading, setPageLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  const [genProgress, setGenProgress] = useState({ current: 0, total: 0, lesson: '' });
+  const genProgressRef = useRef({ current: 0, total: 0, lesson: '' });
   const [retryingLessons, setRetryingLessons] = useState<Set<number>>(new Set());
   const [editingSectionIdx, setEditingSectionIdx] = useState<number | null>(null);
   const [editSectionTitle, setEditSectionTitle] = useState('');
@@ -108,6 +111,21 @@ export default function TopicDetail() {
   const [sectionExercises, setSectionExercises] = useState<Record<number, Exercise[]>>({});
   const [topicExercise, setTopicExercise] = useState<Exercise | null>(null);
   const [generatingTopicExercise, setGeneratingTopicExercise] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const eventsRef = useRef<AgentEvent[]>([]);
+  const rafRef = useRef<number>(0);
+  const completedLessonIdsRef = useRef<Set<number>>(new Set());
+
+  // Cleanup on unmount: abort in-flight SSE, prevent further setState
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   // Restore in-progress exercise generation state from sessionStorage on mount
   useEffect(() => {
@@ -172,49 +190,39 @@ export default function TopicDetail() {
     : topic?.status === 'generating_content'
       ? t('topic.genContentStatus')
       : '';
-  const genProgress = (() => {
-    const gp = topic?.generation_progress;
-    if (gp) {
-      return { current: gp.current, total: gp.total, lesson: gp.current_lesson || '' };
-    }
-    if (topic?.sections && outline?.sections) {
-      const current = topic.sections.reduce((sum, s) => sum + (s.lessons || []).filter(l => l.content?.length > 0).length, 0);
-      const total = outline.sections.reduce((sum, s) => sum + s.lessons.length, 0);
-      return { current, total, lesson: '' };
-    }
-    return { current: 0, total: 0, lesson: '' };
-  })();
 
-  const getLessonStatus = (sectionTitle: string, lessonTitle: string): { status: 'pending' | 'generating' | 'generated'; lessonId?: number; sectionId?: number; failed?: boolean } => {
+  const failedIds: number[] = (topic?.generation_progress as any)?.failed_lesson_ids || [];
+  const failedIdsKey = failedIds.join(',');
+
+  const lessonStatusMap = useMemo(() => {
+    const map: Record<string, { status: 'pending' | 'generating' | 'generated'; lessonId?: number; sectionId?: number; failed?: boolean }> = {};
     if (topic?.sections) {
       for (const sec of topic.sections) {
-        if (sec.title === sectionTitle) {
-          for (const les of (sec.lessons || [])) {
-            if (les.title === lessonTitle) {
-              const isEmptyOrError = !les.content
-                || les.content === '[]'
-                || les.content.includes('Generation failed');
-              const hasContent = !isEmptyOrError;
-              const failedIds: number[] = (topic.generation_progress as any)?.failed_lesson_ids || [];
-              const failed = failedIds.includes(les.id) || (!hasContent && !!les.content);
-              if (hasContent || failed) {
-                return { status: 'generated', lessonId: les.id, sectionId: sec.id, failed };
-              }
-              break;
-            }
+        for (const les of (sec.lessons || [])) {
+          const key = `${sec.title}::${les.title}`;
+          const hasContent = les.has_content !== undefined
+            ? les.has_content
+            : !!(les.content && les.content !== '[]' && !les.content.includes('Generation failed'));
+          const failed = failedIds.includes(les.id) || (!hasContent && !!les.content);
+          if (hasContent || failed) {
+            map[key] = { status: 'generated', lessonId: les.id, sectionId: sec.id, failed };
+          } else if (topic?.status === 'generating_content' && !failed) {
+            map[key] = { status: 'generating', lessonId: les.id, sectionId: sec.id };
           }
         }
       }
     }
-    const gp = topic?.generation_progress;
-    if (gp && gp.current_section === sectionTitle && gp.current_lesson === lessonTitle) {
-      return { status: 'generating' };
-    }
-    return { status: 'pending' };
+    return map;
+  }, [topic?.sections, topic?.status, failedIdsKey]);
+
+  const getLessonStatus = (sectionTitle: string, lessonTitle: string) => {
+    const key = `${sectionTitle}::${lessonTitle}`;
+    if (lessonStatusMap[key]) return lessonStatusMap[key];
+    if (topic?.status === 'generating_content') return { status: 'generating' as const };
+    return { status: 'pending' as const };
   };
 
-  // Count lessons in the outline that still need content generation
-  const pendingLessonCount = (() => {
+  const pendingLessonCount = useMemo(() => {
     if (!outline?.sections) return 0;
     let count = 0;
     for (const sec of outline.sections) {
@@ -224,10 +232,9 @@ export default function TopicDetail() {
       }
     }
     return count;
-  })();
+  }, [outline?.sections, topic?.sections, topic?.generation_progress, topic?.status]);
 
-  // Distinguish failed lessons (were attempted, need retry) from new lessons (never attempted)
-  const failedRetryCount = (() => {
+  const failedRetryCount = useMemo(() => {
     if (!outline?.sections) return 0;
     let count = 0;
     for (const sec of outline.sections) {
@@ -237,7 +244,7 @@ export default function TopicDetail() {
       }
     }
     return count;
-  })();
+  }, [outline?.sections, topic?.sections, topic?.generation_progress, topic?.status]);
 
 
   useEffect(() => {
@@ -253,45 +260,65 @@ export default function TopicDetail() {
     }
   }, [id, t]);
 
-  // Poll for progress when topic is generating
+  // Poll only for refresh recovery — when generating but no active SSE stream
   useEffect(() => {
     const isGenStatus = topic?.status === 'generating_outline' || topic?.status === 'generating_content';
-    if (!id || !isGenStatus) return;
-    const timer = setInterval(async () => {
+    if (!id || !isGenStatus || generating) return;
+    const poll = async () => {
       try {
-        const updated = await api.getTopic(Number(id));
+        const brief = await api.getTopic(Number(id), { brief: 'true' });
         setTopic((prev) => {
-          if (!prev) return updated;
-          const prevGp = prev.generation_progress;
-          const newGp = updated.generation_progress;
-          if (prevGp && newGp) {
-            const prevCurrent = prevGp.current || 0;
-            const newCurrent = newGp.current || 0;
-            if (prevCurrent > newCurrent) {
-              return { ...updated, generation_progress: prevGp };
-            }
-            if (prevCurrent === newCurrent && prevGp.current_section) {
-              return { ...updated, generation_progress: prevGp };
-            }
-          } else if (prevGp && !newGp) {
-            return { ...updated, generation_progress: prevGp };
+          if (!prev) return prev;
+          const updated = { ...prev, status: brief.status, generation_progress: brief.generation_progress };
+          if (prev.sections && prev.sections.length > 0 && brief.sections) {
+            updated.sections = prev.sections.map((sec) => {
+              const briefSec = brief.sections?.find((s: any) => s.id === sec.id);
+              if (!briefSec) return sec;
+              return {
+                ...sec,
+                lessons: (sec.lessons || []).map((les) => {
+                  const briefLes = briefSec.lessons?.find((l: any) => l.id === les.id);
+                  return briefLes ? { ...les, has_content: briefLes.has_content } : les;
+                }),
+              };
+            });
+          } else if (brief.sections && brief.sections.length > 0) {
+            updated.sections = brief.sections;
           }
           return updated;
         });
-        if (updated.status !== 'generating_outline' && updated.status !== 'generating_content') {
+        // Sync lightweight progress state from poll
+        const gp = brief.generation_progress;
+        if (gp) {
+          setGenProgress({ current: gp.current || 0, total: gp.total || 0, lesson: gp.current_lesson || '' });
+        }
+        if (brief.status !== 'generating_outline' && brief.status !== 'generating_content') {
           clearInterval(timer);
-          if (updated.status === 'outline_ready' || updated.status === 'content_ready') {
-            api.getOutline(Number(id)).then(o => setOutline(o)).catch(() => {});
-          }
+          setGenProgress({ current: 0, total: 0, lesson: '' });
+          const [t, o] = await Promise.all([
+            api.getTopic(Number(id)),
+            api.getOutline(Number(id)).catch(() => null),
+          ]);
+          setTopic(t);
+          if (o) setOutline(o);
         }
       } catch { /* ignore */ }
-    }, 2000);
+    };
+    poll();
+    const timer = setInterval(poll, 1500);
     return () => clearInterval(timer);
-  }, [topic?.status, id]);
+  }, [topic?.status, id, generating]);
 
-  // Load existing exercises for sections and topic
+  // Reset exercise loading state when topic changes
+  const exercisesLoadedRef = useRef(false);
+  useEffect(() => { exercisesLoadedRef.current = false; }, [id]);
+
+  // Load existing exercises for sections and topic — only when ready (not generating)
   useEffect(() => {
     if (!topic || !id) return;
+    if (topic.status === 'generating_outline' || topic.status === 'generating_content') return;
+    if (exercisesLoadedRef.current) return;
+    exercisesLoadedRef.current = true;
     const secs = topic.sections || [];
     Promise.all([
       ...secs.map((sec) =>
@@ -304,7 +331,6 @@ export default function TopicDetail() {
       const map: Record<number, Exercise[]> = {};
       secs.forEach((sec, i) => { map[sec.id] = secResults[i] || []; });
       setSectionExercises(map);
-      // Pick the first topic-level exercise
       const topicEx = topicResults.find(e => e.type === 'topic');
       if (topicEx) setTopicExercise(topicEx);
       // Clear generating state if exercise was created while user was away
@@ -324,7 +350,6 @@ export default function TopicDetail() {
             sessionStorage.removeItem(`gen_exercise_${id}`);
           }
         }
-        // Defensive: clear stale generating states not backed by sessionStorage
         const pendingSet = new Set(pending);
         setGeneratingExercise((prev) => {
           if (prev.size === 0) return prev;
@@ -375,6 +400,7 @@ export default function TopicDetail() {
         ...prev,
         [sectionId]: [...(prev[sectionId] || []), exercise],
       }));
+      _cleanup();
       message.success(t('exercise.generateSuccess'));
     } catch (err: any) {
       _cleanup();
@@ -411,17 +437,54 @@ export default function TopicDetail() {
 
   const handleGenerateOutline = async (withFeedback?: string) => {
     if (!id || !topic) return;
+    // Cancel any in-flight generation
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
     setGenerating(true);
+    // Optimistic: immediately show generating status
+    setTopic((prev) => prev ? { ...prev, status: 'generating_outline' as const } : prev);
+    setAgentEvents([]);
+    eventsRef.current = [];
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+
     try {
-      const result = await api.generateOutline(Number(id), topic.title, withFeedback, contentLang);
-      setOutline(result);
-      const updatedTopic = await api.getTopic(Number(id));
-      setTopic(updatedTopic);
-      message.success(withFeedback ? t('topic.outlineRegenOk') : t('topic.outlineGenOk'));
-    } catch {
+      await api.generateOutlineStream(
+        Number(id),
+        topic.title,
+        (event) => {
+          if (!mountedRef.current) return;
+          eventsRef.current.push(event);
+          if (!rafRef.current) {
+            rafRef.current = requestAnimationFrame(() => {
+              if (!mountedRef.current) return;
+              setAgentEvents([...eventsRef.current]);
+              rafRef.current = 0;
+            });
+          }
+          if (event.type === 'outline_saved' && event.sections) {
+            setOutline({ id: 0, topic_id: Number(id), sections: event.sections });
+            message.success(withFeedback ? t('topic.outlineRegenOk') : t('topic.outlineGenOk'));
+          } else if (event.type === 'agent_error') {
+            message.error(event.error || t('topic.aiFail'));
+          }
+        },
+        withFeedback,
+        contentLang,
+        signal,
+      );
+      if (mountedRef.current) {
+        const updatedTopic = await api.getTopic(Number(id));
+        setTopic(updatedTopic);
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       message.error(t('topic.aiFail'));
     } finally {
-      setGenerating(false);
+      if (mountedRef.current) {
+        setGenerating(false);
+        setAgentEvents([]);
+      }
     }
   };
 
@@ -434,20 +497,88 @@ export default function TopicDetail() {
 
   const handleGenerateContent = async () => {
     if (!id || !topic) return;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
     setGenerating(true);
+    // Optimistic: immediately show generating status
+    setTopic((prev) => prev ? { ...prev, status: 'generating_content' as const } : prev);
+    setGenProgress({ current: 0, total: 0, lesson: '' });
+    genProgressRef.current = { current: 0, total: 0, lesson: '' };
+    completedLessonIdsRef.current.clear();
+
     try {
-      const result = await api.generateContentStream(Number(id), contentLang);
-      if (result.status === 'already_generating') {
-        message.info(t('topic.alreadyGenerating'));
-      } else {
-        message.success(t('topic.contentGenStarted'));
+      await api.generateContentStream(
+        Number(id),
+        (event) => {
+          if (!mountedRef.current) return;
+          if (event.type === 'progress') {
+            // Buffer progress in ref, flush via shared RAF
+            genProgressRef.current = {
+              current: event.current || 0,
+              total: event.total || 0,
+              lesson: event.current_lesson || '',
+            };
+            if (event.lesson_id) {
+              completedLessonIdsRef.current.add(event.lesson_id);
+            }
+            if (!rafRef.current) {
+              rafRef.current = requestAnimationFrame(() => {
+                if (!mountedRef.current) return;
+                setGenProgress({ ...genProgressRef.current });
+                const completedIds = new Set(completedLessonIdsRef.current);
+                completedLessonIdsRef.current.clear();
+                if (completedIds.size > 0) {
+                  setTopic((prev) => {
+                    if (!prev || !prev.sections) return prev;
+                    let changed = false;
+                    const next = {
+                      ...prev,
+                      sections: prev.sections.map((sec) => ({
+                        ...sec,
+                        lessons: (sec.lessons || []).map((les) => {
+                          if (completedIds.has(les.id) && !les.has_content) {
+                            changed = true;
+                            return { ...les, has_content: true };
+                          }
+                          return les;
+                        }),
+                      })),
+                    };
+                    return changed ? next : prev;
+                  });
+                }
+                rafRef.current = 0;
+              });
+            }
+          } else if (event.type === 'all_done') {
+            message.success(t('topic.contentGenOk'));
+            setGenProgress({ current: 0, total: 0, lesson: '' });
+            setGenerating(false);
+          } else if (event.type === 'agent_error') {
+            message.error(event.error || t('topic.contentGenFail'));
+          }
+        },
+        contentLang,
+        signal,
+      );
+      if (mountedRef.current) {
         const updatedTopic = await api.getTopic(Number(id));
-        setTopic(updatedTopic);
+        setTopic({ ...updatedTopic, status: 'content_ready', generation_progress: null });
+        const updatedOutline = await api.getOutline(Number(id)).catch(() => null);
+        if (updatedOutline) setOutline(updatedOutline);
+        setGenProgress({ current: 0, total: 0, lesson: '' });
       }
     } catch (err: any) {
-      message.error(err?.message || t('topic.contentGenFail'));
+      if (err?.name === 'AbortError') return;
+      if (mountedRef.current) {
+        message.error(err?.message || t('topic.contentGenFail'));
+        const updatedTopic = await api.getTopic(Number(id));
+        setTopic(updatedTopic);
+        setGenProgress({ current: 0, total: 0, lesson: '' });
+      }
     } finally {
-      setGenerating(false);
+      if (mountedRef.current) setGenerating(false);
     }
   };
 
@@ -639,14 +770,15 @@ export default function TopicDetail() {
         )}
       </div>
 
-      {/* ---- Generation Progress Card ---- */}
+      {/* ---- Agent Feed / Generation Progress Card ---- */}
       {isGenerating && (
         <div style={{
           ...cardStyle,
           borderLeft: `4px solid ${DS.primary}`,
         }}>
-          {genProgress.total > 0 ? (
-            <div>
+          {/* Progress bar — always show if generating content */}
+          {genProgress.total > 0 && (
+            <div style={{ marginBottom: agentEvents.length > 0 ? 14 : 0 }}>
               <Progress
                 percent={Math.round((genProgress.current / genProgress.total) * 100)}
                 strokeColor={DS.primary}
@@ -657,7 +789,36 @@ export default function TopicDetail() {
                 {t('topic.genProgress', { current: genProgress.current, total: genProgress.total, lesson: genProgress.lesson })}
               </Text>
             </div>
-          ) : (
+          )}
+          {/* Agent events — outline generation */}
+          {agentEvents.length > 0 && (
+            <div style={{ maxHeight: 200, overflow: 'auto' }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: DS.text, marginBottom: 8 }}>
+                {t('topic.agentFeed')}
+              </div>
+              {agentEvents.map((evt, i) => (
+                <div key={i} style={{ fontSize: 12, color: DS.textSecondary, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {evt.type === 'agent_thinking' && (
+                    <span style={{ fontStyle: 'italic' }}>{t('topic.agentThinking')}</span>
+                  )}
+                  {evt.type === 'tool_call' && evt.tool === 'web_search' && (
+                    <span>{t('topic.agentSearching', { query: String(evt.args?.query || '') })}</span>
+                  )}
+                  {evt.type === 'tool_call' && evt.tool === 'web_fetch' && (
+                    <span>{t('topic.agentFetching', { url: String(evt.args?.url || '') })}</span>
+                  )}
+                  {evt.type === 'tool_result' && (
+                    <Tag color="blue" style={{ fontSize: 10 }}>{String(evt.result || '')}</Tag>
+                  )}
+                  {evt.type === 'agent_done' && (
+                    <Tag color="success" style={{ fontSize: 10 }}>Done</Tag>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Fallback spinner when no progress data */}
+          {genProgress.total === 0 && agentEvents.length === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <Spin size="small" />
               <Text style={{ color: DS.textSecondary, fontSize: 13 }}>{genStatus}</Text>

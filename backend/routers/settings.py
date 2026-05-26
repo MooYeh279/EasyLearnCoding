@@ -153,3 +153,57 @@ def update_workspace(body: WorkspaceResponse, db: Session = Depends(get_db)):
     Path(new_workspace).mkdir(parents=True, exist_ok=True)
     set_code_workspace(new_workspace)
     return {"message": "Workspace updated", "path": new_workspace}
+
+
+# ── Search settings ─────────────────────────────────────────────────────
+
+SEARCH_KEYS = {"web_search_provider", "tavily_api_key", "web_search_enabled"}
+
+
+class SearchSettingsResponse(BaseModel):
+    enabled: bool = False
+    provider: str = "duckduckgo"
+    api_key: str = ""
+
+
+@router.get("/settings/search")
+def get_search_settings(db: Session = Depends(get_db)):
+    settings = {}
+    for row in db.query(AppSetting).filter(AppSetting.key.in_(SEARCH_KEYS)).all():
+        settings[row.key] = row.value
+
+    raw_key = settings.get("tavily_api_key") or ""
+    masked = raw_key[:API_KEY_MASK_PREFIX] + "****" + raw_key[-API_KEY_MASK_SUFFIX:] \
+        if len(raw_key) > API_KEY_MASK_MIN else "****"
+
+    enabled_val = settings.get("web_search_enabled", "false").lower() == "true"
+
+    return SearchSettingsResponse(
+        enabled=enabled_val,
+        provider=settings.get("web_search_provider") or "duckduckgo",
+        api_key=masked,
+    )
+
+
+@router.put("/settings/search")
+def update_search_settings(body: SearchSettingsResponse, db: Session = Depends(get_db)):
+    api_key = body.api_key
+    if "****" in api_key:
+        rows = {r.key: r.value for r in db.query(AppSetting).filter(
+            AppSetting.key.in_(SEARCH_KEYS)
+        ).all()}
+        api_key = rows.get("tavily_api_key") or ""
+
+    updates = {
+        "web_search_enabled": "true" if body.enabled else "false",
+        "web_search_provider": body.provider,
+        "tavily_api_key": api_key,
+    }
+    for key, value in updates.items():
+        row = db.query(AppSetting).filter(AppSetting.key == key).first()
+        if row:
+            row.value = value
+        else:
+            db.add(AppSetting(key=key, value=value))
+    db.commit()
+    return {"message": "Search settings updated"}

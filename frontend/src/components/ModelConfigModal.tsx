@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Button, Input, Typography, message } from 'antd';
+import { Modal, Button, Input, Typography, message, Select, Switch } from 'antd';
 import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
 
@@ -36,18 +36,25 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [searchProvider, setSearchProvider] = useState('duckduckgo');
+  const [tavilyApiKey, setTavilyApiKey] = useState('');
+  const [searchEnabled, setSearchEnabled] = useState(false);
 
   const loadSettings = async () => {
     setTestResult(null);
     try {
-      const [aiData, wsData] = await Promise.all([
+      const [aiData, wsData, searchData] = await Promise.all([
         api.getAiSettings(),
         api.getWorkspace(),
+        api.getSearchSettings(),
       ]);
       setApiKey(aiData.api_key);
       setBaseUrl(aiData.base_url);
       setModel(aiData.model);
       setWorkspacePath(wsData.path);
+      setSearchEnabled(searchData.enabled);
+      setSearchProvider(searchData.provider);
+      setTavilyApiKey(searchData.api_key);
     } catch {
       message.error('Failed to load settings');
     }
@@ -61,14 +68,22 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     if (!apiKey.trim() || !baseUrl.trim() || !model.trim()) return;
     setSaving(true);
     try {
-      await Promise.all([
+      const promises: Promise<unknown>[] = [
         api.updateAiSettings({
           api_key: apiKey.trim(),
           base_url: baseUrl.trim(),
           model: model.trim(),
         }),
-        workspacePath.trim() ? api.updateWorkspace(workspacePath.trim()) : Promise.resolve(),
-      ]);
+        api.updateSearchSettings({
+          enabled: searchEnabled,
+          provider: searchProvider,
+          api_key: tavilyApiKey.trim(),
+        }),
+      ];
+      if (workspacePath.trim()) {
+        promises.push(api.updateWorkspace(workspacePath.trim()));
+      }
+      await Promise.all(promises);
       message.success('Settings saved');
       onClose();
     } catch {
@@ -207,6 +222,55 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       <Text style={{ fontSize: 12, color: DS.textMuted }}>
         {t('model.hint')}
       </Text>
+
+      {/* Divider + Search section */}
+      <div style={{
+        borderTop: '1px solid #e8e8ed',
+        margin: '20px 0 14px',
+      }} />
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <label style={{ fontSize: 13, fontWeight: 500, color: DS.text, display: 'block' }}>
+            {t('search.title')}
+          </label>
+          <Text style={{ fontSize: 11, color: DS.textMuted }}>{t('search.enabledHint')}</Text>
+        </div>
+        <Switch checked={searchEnabled} onChange={setSearchEnabled} />
+      </div>
+      {searchEnabled && (
+        <>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 13, fontWeight: 500, color: DS.text, display: 'block', marginBottom: 6 }}>
+              {t('search.provider')}
+            </label>
+            <Select
+              value={searchProvider}
+              onChange={setSearchProvider}
+              style={{ width: '100%' }}
+              options={[
+                { value: 'duckduckgo', label: t('search.provider.duckduckgo') },
+                { value: 'tavily', label: t('search.provider.tavily') },
+              ]}
+            />
+            <Text style={{ fontSize: 11, color: DS.textMuted, marginTop: 4, display: 'block' }}>
+              {t('search.providerHint')}
+            </Text>
+          </div>
+          {searchProvider === 'tavily' && (
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: DS.text, display: 'block', marginBottom: 6 }}>
+                {t('search.tavilyKey')}
+              </label>
+              <Input.Password
+                value={tavilyApiKey}
+                onChange={e => setTavilyApiKey(e.target.value)}
+                placeholder={t('search.tavilyKeyPlaceholder')}
+                style={{ borderRadius: DS.radiusXs }}
+              />
+            </div>
+          )}
+        </>
+      )}
 
       {/* Divider + Workspace section */}
       <div style={{

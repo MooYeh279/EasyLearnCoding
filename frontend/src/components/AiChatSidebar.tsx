@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { Input, Collapse, Tag } from 'antd';
+import { SendOutlined, SearchOutlined, LoadingOutlined } from '@ant-design/icons';
 import MarkdownRenderer from './MarkdownRenderer';
 import { api } from '../api/client';
 import { useContentLang } from '../context/LangContext';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ToolCall, AgentEvent } from '../types';
 
 const primary = '#5b5feb';
 const textColor = '#1e1e24';
@@ -18,12 +18,48 @@ interface Props {
   onCollapse: () => void;
 }
 
+interface StreamState {
+  fullText: string;
+  toolCalls: ToolCall[];
+}
+
+function applyAgentEvent(
+  event: AgentEvent,
+  state: StreamState,
+  setThinking: (v: boolean) => void,
+  setTools: (v: ToolCall[]) => void,
+  setText: (v: string) => void,
+) {
+  switch (event.type) {
+    case 'agent_thinking':
+      setThinking(true);
+      break;
+    case 'tool_call':
+      setThinking(false);
+      state.toolCalls.push({ name: event.tool || 'unknown', arguments: event.args || {} });
+      setTools([...state.toolCalls]);
+      break;
+    case 'tool_result':
+      break;
+    case 'agent_done':
+      state.fullText = event.text || '';
+      setText(state.fullText);
+      break;
+    case 'agent_error':
+      state.fullText = `Error: ${event.error || 'Unknown error'}`;
+      setText(state.fullText);
+      break;
+  }
+}
+
 export default function AiChatSidebar({ lessonId, lessonTitle: _lessonTitle, onCollapse }: Props) {
   const { t } = useContentLang();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState('');
+  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCall[]>([]);
+  const [streamingThinking, setStreamingThinking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -32,6 +68,8 @@ export default function AiChatSidebar({ lessonId, lessonTitle: _lessonTitle, onC
     setMessages([]);
     setStreaming(false);
     setStreamingText('');
+    setStreamingToolCalls([]);
+    setStreamingThinking(false);
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
@@ -40,45 +78,53 @@ export default function AiChatSidebar({ lessonId, lessonTitle: _lessonTitle, onC
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingText]);
+  }, [messages, streamingText, streamingToolCalls]);
+
+  const resetStreaming = () => {
+    setStreamingText('');
+    setStreamingToolCalls([]);
+    setStreamingThinking(false);
+  };
+
+  const finishMessage = (finalText: string, tc: ToolCall[]) => {
+    setStreaming(false);
+    resetStreaming();
+    setMessages((prev) => [...prev, {
+      role: 'assistant',
+      content: finalText,
+      toolCalls: tc.length > 0 ? tc : undefined,
+    }]);
+    abortRef.current = null;
+  };
 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || streaming) return;
     setInput('');
 
-    const userMsg: ChatMessage = { role: 'user', content: text };
-    const updated = [...messages, userMsg];
-    setMessages(updated);
+    setMessages([...messages, { role: 'user', content: text }]);
     setStreaming(true);
-    setStreamingText('');
+    resetStreaming();
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    let fullText = '';
-    await api.chat(
-      lessonId,
-      text,
-      messages,
-      (chunk) => {
-        fullText += chunk;
-        setStreamingText(fullText);
-      },
-      () => {
-        setStreaming(false);
-        setStreamingText('');
-        setMessages((prev) => [...prev, { role: 'assistant', content: fullText }]);
-        abortRef.current = null;
-      },
-      (err) => {
-        setStreaming(false);
-        setStreamingText('');
-        setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${err}` }]);
-        abortRef.current = null;
-      },
-      ctrl.signal,
-    );
+    const state: StreamState = { fullText: '', toolCalls: [] };
+
+    try {
+      await api.chat(
+        lessonId, text, messages,
+        (e) => applyAgentEvent(e, state, setStreamingThinking, setStreamingToolCalls, setStreamingText),
+        ctrl.signal,
+      );
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        state.fullText = `Error: ${err?.message || 'Request failed'}`;
+        setStreamingText(state.fullText);
+      }
+    }
+
+    finishMessage(state.fullText, state.toolCalls);
   };
 
   const handleStop = () => {
@@ -187,7 +233,7 @@ export default function AiChatSidebar({ lessonId, lessonTitle: _lessonTitle, onC
                 lineHeight: '20px',
               }}
             >
-              Ask questions about this lesson
+              {t('chat.emptyHint')}
             </span>
           </div>
         )}
@@ -232,14 +278,41 @@ export default function AiChatSidebar({ lessonId, lessonTitle: _lessonTitle, onC
                   color: textColor,
                 }}
               >
+                {/* Tool calls */}
+                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <Collapse
+                      size="small"
+                      ghost
+                      items={msg.toolCalls.map((tc, tci) => ({
+                        key: String(tci),
+                        label: (
+                          <span style={{ fontSize: 12, color: primary }}>
+                            <SearchOutlined style={{ marginRight: 6 }} />
+                            {tc.name}
+                          </span>
+                        ),
+                        children: (
+                          <div style={{ fontSize: 11, color: textSecondary, maxHeight: 120, overflow: 'auto' }}>
+                            <div style={{ marginBottom: 4, fontWeight: 500 }}>Arguments:</div>
+                            <pre style={{ margin: 0, fontSize: 10, whiteSpace: 'pre-wrap' }}>
+                              {JSON.stringify(tc.arguments, null, 2)}
+                            </pre>
+                          </div>
+                        ),
+                      }))}
+                    />
+                  </div>
+                )}
+                {/* Message content */}
                 <MarkdownRenderer content={msg.content} />
               </div>
             )}
           </div>
         ))}
 
-        {/* Streaming text */}
-        {streaming && streamingText && (
+        {/* Streaming tools + text */}
+        {streaming && (streamingToolCalls.length > 0 || streamingText || streamingThinking) && (
           <div
             className="afs-msg-enter"
             style={{
@@ -260,13 +333,41 @@ export default function AiChatSidebar({ lessonId, lessonTitle: _lessonTitle, onC
                 color: textColor,
               }}
             >
-              <MarkdownRenderer content={streamingText} />
+              {/* Tool calls during streaming */}
+              {streamingToolCalls.map((tc, tci) => (
+                <div key={tci} style={{
+                  marginBottom: 8,
+                  padding: '6px 10px',
+                  background: '#f5f3ff',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  color: primary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
+                  <SearchOutlined />
+                  <span style={{ fontWeight: 500 }}>{tc.name}</span>
+                  <Tag style={{ fontSize: 10, marginLeft: 'auto', lineHeight: '16px' }}>
+                    {t('chat.searching')}
+                  </Tag>
+                </div>
+              ))}
+              {/* Thinking indicator */}
+              {streamingThinking && !streamingText && (
+                <span style={{ fontSize: 12, color: textSecondary, fontStyle: 'italic' }}>
+                  <LoadingOutlined style={{ marginRight: 6 }} />
+                  {t('chat.thinking')}
+                </span>
+              )}
+              {/* Text */}
+              {streamingText && <MarkdownRenderer content={streamingText} />}
             </div>
           </div>
         )}
 
-        {/* Typing indicator */}
-        {streaming && !streamingText && (
+        {/* Typing indicator (initial state: no tools, no text, no thinking yet) */}
+        {streaming && !streamingToolCalls.length && !streamingText && !streamingThinking && (
           <div
             style={{
               display: 'flex',

@@ -23,7 +23,7 @@ def _detect_custom_path(path: str, *extra_args: str) -> tuple[bool, str | None]:
     try:
         cmd = [path] + list(extra_args) if extra_args else [path, "--version"]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=10,
+            cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=10,
             shell=(platform.system() == "Windows"),
         )
         output = result.stdout or ""

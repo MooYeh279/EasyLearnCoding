@@ -5,12 +5,26 @@ C_HARNESS = """\
 #include <math.h>
 
 #define _JSON_BUF_SIZE 8192
+#define _EPS 1e-4
 
 #define __TEST__(name, expr) do { \\
     if (!_first_test) strncat(_json_buf, ",", _JSON_BUF_SIZE - strlen(_json_buf) - 1); \\
     { char _entry[512]; \\
       snprintf(_entry, sizeof(_entry), \\
         (expr) \\
+            ? "{\\"name\\":\\"%s\\",\\"passed\\":true}" \\
+            : "{\\"name\\":\\"%s\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}", \\
+        name); \\
+      strncat(_json_buf, _entry, _JSON_BUF_SIZE - strlen(_json_buf) - 1); } \\
+    _first_test = 0; \\
+} while(0)
+
+#define __APPROX__(name, actual, expected) do { \\
+    if (!_first_test) strncat(_json_buf, ",", _JSON_BUF_SIZE - strlen(_json_buf) - 1); \\
+    { char _entry[512]; \\
+      double _a = (double)(actual); double _e = (double)(expected); \\
+      snprintf(_entry, sizeof(_entry), \\
+        (fabs(_a - _e) < _EPS) \\
             ? "{\\"name\\":\\"%s\\",\\"passed\\":true}" \\
             : "{\\"name\\":\\"%s\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}", \\
         name); \\

@@ -1,4 +1,4 @@
-"""Chat endpoint for AI learning assistant (SSE streaming)."""
+"""Chat endpoint for AI learning assistant (SSE streaming with agent loop)."""
 import json
 from http import HTTPStatus
 
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from config import PROMPTS_DIR, CHAT_CONTENT_MAX_CHARS, CHAT_HISTORY_MAX, CHAT_TEMPERATURE
 from database import SessionLocal
 from services.ai_service import get_provider, get_model, get_platform_info
+from services.agent_loop import agent_loop
 from models import Lesson
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -23,6 +24,7 @@ class ChatRequest(BaseModel):
     message: str
     lesson_id: int
     history: list[ChatMessage] = []
+    enable_tools: bool = False
 
 
 def _load_prompt(name: str) -> str:
@@ -59,18 +61,14 @@ async def chat(body: ChatRequest):
 
     async def generate():
         try:
-            stream = get_provider().chat_completion_stream_async(
-                model=get_model(),
+            async for event in agent_loop(
                 messages=messages,
-                temperature=CHAT_TEMPERATURE,
-            )
-            full_text = ""
-            async for chunk in stream:
-                full_text += chunk
-                yield f"event: chunk\ndata: {json.dumps({'text': chunk})}\n\n"
-            yield f"event: done\ndata: {json.dumps({'text': full_text})}\n\n"
+                model=get_model(),
+                provider=get_provider(),
+                enable_tools=body.enable_tools,
+            ):
+                yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
-            error_msg = f"AI request failed: {str(e)}"
-            yield f"event: error\ndata: {json.dumps({'text': error_msg})}\n\n"
+            yield f"event: agent_error\ndata: {json.dumps({'error': f'AI request failed: {e}'})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")

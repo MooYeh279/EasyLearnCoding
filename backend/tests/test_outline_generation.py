@@ -1,213 +1,5 @@
 import json
-import time
-from unittest.mock import patch, AsyncMock
-from models import Language, Course, Topic, TopicStatus
-
-MOCK_OUTLINE = {
-    "sections": [
-        {
-            "title": "Basics",
-            "description": "Learn the basics",
-            "lessons": [{"title": "Intro"}, {"title": "Setup"}],
-        }
-    ]
-}
-
-MOCK_LESSON = "## Intro\n\nThis is lesson content."
-
-
-async def _mock_generate_lesson_async(**kwargs):
-    return MOCK_LESSON
-
-
-@patch("routers.topics.generate_outline_async", new_callable=AsyncMock)
-def test_generate_outline_endpoint(mock_gen, client, db):
-    mock_gen.return_value = MOCK_OUTLINE
-    lang = Language(id=40, name="java", display_name="Java")
-    db.add(lang)
-    db.commit()
-    course = Course(language_id=lang.id, title="Java 学习")
-    db.add(course)
-    db.commit()
-    topic = Topic(course_id=course.id, title="Streams", status=TopicStatus.draft)
-    db.add(topic)
-    db.commit()
-
-    resp = client.post(f"/api/topics/{topic.id}/generate-outline", json={"topic_title": "Streams"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["sections"][0]["title"] == "Basics"
-
-    db.refresh(topic)
-    assert topic.status == TopicStatus.outline_ready
-
-
-@patch("services.ai_service.generate_lesson_async", side_effect=_mock_generate_lesson_async)
-@patch("routers.topics.generate_outline_async", new_callable=AsyncMock)
-def test_generate_content_endpoint(mock_outline, mock_lesson_async, client, db):
-    lang = Language(id=41, name="kotlin", display_name="Kotlin")
-    db.add(lang)
-    db.commit()
-    course = Course(language_id=lang.id, title="Kotlin 学习")
-    db.add(course)
-    db.commit()
-    topic = Topic(course_id=course.id, title="Coroutines", status=TopicStatus.outline_ready)
-    db.add(topic)
-    db.commit()
-
-    from models import TopicOutline
-    db.add(TopicOutline(topic_id=topic.id, sections_json=MOCK_OUTLINE))
-    db.commit()
-
-    resp = client.post(f"/api/topics/{topic.id}/generate-content")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "content_ready"
-
-    resp2 = client.get(f"/api/topics/{topic.id}")
-    assert resp2.status_code == 200
-    topic_data = resp2.json()
-    assert len(topic_data["sections"]) == 1
-    assert len(topic_data["sections"][0]["lessons"]) == 2
-
-
-@patch("routers.topics.generate_outline_async", new_callable=AsyncMock)
-def test_generate_outline_with_feedback(mock_gen, client, db):
-    mock_gen.return_value = {
-        "sections": [{"title": "Revised", "description": "d", "lessons": [{"title": "X"}]}]
-    }
-    lang = Language(id=42, name="swift", display_name="Swift")
-    db.add(lang)
-    db.commit()
-    course = Course(language_id=lang.id, title="Swift 学习")
-    db.add(course)
-    db.commit()
-    topic = Topic(course_id=course.id, title="Combine", status=TopicStatus.outline_ready)
-    db.add(topic)
-    db.commit()
-
-    from models import TopicOutline
-    db.add(TopicOutline(topic_id=topic.id, sections_json={"sections": [{"title": "Old"}]}))
-    db.commit()
-
-    resp = client.post(f"/api/topics/{topic.id}/generate-outline",
-                       json={"topic_title": "Combine", "feedback": "Make it shorter"})
-    assert resp.status_code == 200
-    assert resp.json()["sections"][0]["title"] == "Revised"
-
-
-@patch("routers.topics.generate_outline_async", new_callable=AsyncMock)
-def test_generate_outline_with_content_language(mock_gen, client, db):
-    mock_gen.return_value = MOCK_OUTLINE
-    lang = Language(id=43, name="go", display_name="Go")
-    db.add(lang)
-    db.commit()
-    course = Course(language_id=lang.id, title="Go 学习")
-    db.add(course)
-    db.commit()
-    topic = Topic(course_id=course.id, title="Goroutines", status=TopicStatus.draft)
-    db.add(topic)
-    db.commit()
-
-    resp = client.post(f"/api/topics/{topic.id}/generate-outline",
-                       json={"topic_title": "Goroutines", "content_language": "en"})
-    assert resp.status_code == 200
-    mock_gen.assert_called_once()
-    assert mock_gen.call_args[1]["content_language"] == "en"
-
-
-@patch("services.ai_service.generate_lesson_async", side_effect=_mock_generate_lesson_async)
-def test_generate_content_stream(mock_lesson_async, client, db):
-    from tests.conftest import TestingSessionLocal
-    import routers.topics as topics_module
-
-    lang = Language(id=44, name="ruby", display_name="Ruby")
-    db.add(lang)
-    db.commit()
-    course = Course(language_id=lang.id, title="Ruby 学习")
-    db.add(course)
-    db.commit()
-    topic = Topic(course_id=course.id, title="Blocks", status=TopicStatus.outline_ready)
-    db.add(topic)
-    db.commit()
-
-    from models import TopicOutline
-    db.add(TopicOutline(topic_id=topic.id, sections_json=MOCK_OUTLINE))
-    db.commit()
-
-    with patch.object(topics_module, "SessionLocal", side_effect=TestingSessionLocal):
-        resp = client.post(f"/api/topics/{topic.id}/generate-content-stream",
-                           json={"content_language": "zh"})
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "generation_started"
-
-    # Wait for background thread (mock returns instantly)
-    time.sleep(0.5)
-
-    resp2 = client.get(f"/api/topics/{topic.id}")
-    assert resp2.status_code == 200
-    topic_data = resp2.json()
-    assert len(topic_data["sections"]) == 1
-    assert len(topic_data["sections"][0]["lessons"]) == 2
-    assert topic_data["status"] == "content_ready"
-    assert topic_data["generation_progress"] is None
-
-
-@patch("services.ai_service.generate_lesson_async")
-def test_generate_content_stream_error_event(mock_lesson_async, client, db):
-    from tests.conftest import TestingSessionLocal
-    import routers.topics as topics_module
-
-    async def _mock_error(**kwargs):
-        raise Exception("AI timeout")
-
-    async def _mock_ok(**kwargs):
-        return "## OK"
-
-    call_count = [0]
-
-    async def _mock_alternating(**kwargs):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            return await _mock_ok(**kwargs)
-        else:
-            return await _mock_error(**kwargs)
-
-    mock_lesson_async.side_effect = _mock_alternating
-
-    lang = Language(id=45, name="rust", display_name="Rust")
-    db.add(lang)
-    db.commit()
-    course = Course(language_id=lang.id, title="Rust 学习")
-    db.add(course)
-    db.commit()
-    topic = Topic(course_id=course.id, title="Ownership", status=TopicStatus.outline_ready)
-    db.add(topic)
-    db.commit()
-
-    from models import TopicOutline
-    db.add(TopicOutline(topic_id=topic.id, sections_json=MOCK_OUTLINE))
-    db.commit()
-
-    with patch.object(topics_module, "SessionLocal", side_effect=TestingSessionLocal):
-        resp = client.post(f"/api/topics/{topic.id}/generate-content-stream",
-                           json={"content_language": "zh"})
-
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "generation_started"
-
-    # Wait for background thread
-    time.sleep(0.5)
-
-    resp2 = client.get(f"/api/topics/{topic.id}")
-    topic_data = resp2.json()
-    assert len(topic_data["sections"][0]["lessons"]) == 2
-    # Failed lesson content should not contain error messages
-    failed_lesson = topic_data["sections"][0]["lessons"][1]
-    assert "Generation failed" not in (failed_lesson["content"] or "")
-    # The generation_progress should be cleared for content_ready status
-    # (failed_lesson_ids tracking is ephemeral during generation)
+import pytest
 
 
 class TestMarkdownToCells:
@@ -231,68 +23,153 @@ class TestMarkdownToCells:
         assert "code" in types
         assert "markdown" in types
 
+    def test_invalid_python_becomes_markdown_with_fences(self):
+        """Python code with syntax errors should become a markdown cell preserving fences."""
+        from services.outline_service import _markdown_to_cells
+        md = "```python\nif True print('bad syntax')\n```"
+        result = _markdown_to_cells(md)
+        cells = json.loads(result)
+        assert len(cells) == 1
+        assert cells[0]["type"] == "markdown"
+        assert "```python" in cells[0]["content"]
+        assert "print" in cells[0]["content"]
 
-class TestGenerateContentEdgeCases:
-    """Edge case tests for generate_content_concurrent."""
+    def test_valid_python_stays_python(self):
+        """Valid Python code should remain a python cell."""
+        from services.outline_service import _markdown_to_cells
+        md = '```python\nprint("hello world")\n```'
+        result = _markdown_to_cells(md)
+        cells = json.loads(result)
+        assert len(cells) == 1
+        assert cells[0]["type"] == "code"
+        assert cells[0]["language"] == "python"
 
-    def test_generate_content_preserves_existing(self, client, db):
-        """Existing lesson content should NOT be regenerated on second run."""
-        from models import Language, Course, Topic, TopicStatus
-        from models import Lesson as LessonModel
-        from unittest.mock import patch, AsyncMock
 
-        lang = Language(name="python", display_name="Python")
-        db.add(lang)
-        db.commit()
+class TestValidateSyntax:
+    """Unit tests for _validate_syntax."""
 
-        course = Course(language_id=lang.id, title="TC")
-        db.add(course)
-        db.commit()
+    def test_valid_python(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("python", 'print("hello")')
+        assert _validate_syntax("python", 'x = 1\ny = 2\nprint(x + y)')
+        assert _validate_syntax("python", 'def foo():\n    return 42\n\nprint(foo())')
 
-        topic = Topic(course_id=course.id, title="T", status=TopicStatus.outline_ready)
-        db.add(topic)
-        db.commit()
-        topic_id = topic.id
+    def test_invalid_python(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("python", "if True print('x')")
+        assert not _validate_syntax("python", "for i in range(10) print(i)")
 
-        # Generate outline
-        with patch("routers.topics.generate_outline_async", new_callable=AsyncMock) as mock:
-            mock.return_value = {
-                "sections": [{"title": "S1", "description": "desc", "lessons": [{"title": "L1"}]}]
-            }
-            client.post(f"/api/topics/{topic_id}/generate-outline", json={"topic_title": "T"})
+    def test_empty_code(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("python", "")
+        assert not _validate_syntax("javascript", "")
 
-        # Generate content first time
-        with patch("services.ai_service.generate_lesson_async", new_callable=AsyncMock) as mock_lesson:
-            mock_lesson.return_value = "# Content"
-            client.post(f"/api/topics/{topic_id}/generate-content", json={})
+    def test_unknown_language_passes(self):
+        """Unknown languages pass validation (no checker available)."""
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("unknown_lang", "some code")
 
-        # Re-query topic with fresh session to see committed data
-        db.expire_all()
-        topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    # ── JavaScript ──
 
-        # Verify content was generated
-        original_contents = {}
-        for sec in topic.sections:
-            for les in (sec.lessons or []):
-                if les.content and len(les.content) > 10 and not les.content.startswith("[Generation failed"):
-                    original_contents[les.id] = les.content
+    def test_valid_javascript(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("javascript", "console.log('hello');")
+        assert _validate_syntax("javascript", "const x = 1;\nconst y = 2;\nconsole.log(x + y);")
+        assert _validate_syntax("javascript", "function add(a, b) {\n  return a + b;\n}\nconsole.log(add(1, 2));")
 
-        assert len(original_contents) > 0, "Should have at least one lesson with content"
+    def test_invalid_javascript(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("javascript", "if true {")
+        assert not _validate_syntax("javascript", "const x = ;")
 
-        # Reset status to allow regeneration via endpoint
-        db.query(Topic).filter(Topic.id == topic_id).update({"status": TopicStatus.outline_ready})
-        db.commit()
+    # ── TypeScript ──
 
-        # Generate again -- existing content should be preserved
-        with patch("services.ai_service.generate_lesson_async", new_callable=AsyncMock) as mock_lesson2:
-            mock_lesson2.return_value = "SHOULD NOT REPLACE"
-            client.post(f"/api/topics/{topic_id}/generate-content", json={})
+    def test_valid_typescript(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("typescript", "const x: number = 1;\nconsole.log(x);")
 
-        # Re-query and verify content is intact
-        db.expire_all()
-        topic = db.query(Topic).filter(Topic.id == topic_id).first()
-        for sec in topic.sections:
-            for les in (sec.lessons or []):
-                if les.id in original_contents:
-                    assert les.content == original_contents[les.id], \
-                        "Existing lesson content should be preserved"
+    def test_invalid_typescript(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("typescript", "const x: ;")
+
+    # ── Bash ──
+
+    def test_valid_bash(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("bash", "echo hello")
+
+    def test_invalid_bash(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("bash", "if then fi")
+
+    # ── C ──
+
+    def test_valid_c(self):
+        from services.outline_service import _validate_syntax
+        code = '#include <stdio.h>\nint main() { printf("hello\\n"); return 0; }'
+        assert _validate_syntax("c", code)
+
+    def test_invalid_c(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("c", "int main() { printf(")
+
+    # ── C++ ──
+
+    def test_valid_cpp(self):
+        from services.outline_service import _validate_syntax
+        code = '#include <iostream>\nint main() { std::cout << "hello" << std::endl; return 0; }'
+        assert _validate_syntax("cpp", code)
+
+    def test_invalid_cpp(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("cpp", "int main() { cout << << ")
+
+    # ── Shell (alias for bash) ──
+
+    def test_valid_shell(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("shell", "echo hello")
+
+    def test_invalid_shell(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("shell", "if then fi")
+
+    # ── PowerShell ──
+
+    def test_valid_powershell(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("powershell", "Write-Host 'hello'")
+        assert _validate_syntax("powershell", "$x = 1\n$x")
+
+    def test_invalid_powershell(self):
+        from services.outline_service import _validate_syntax
+        assert not _validate_syntax("powershell", "if (true) {")
+
+    # ── cmd/bat — always pass (no syntax-only checker exists) ──
+
+    def test_cmd_always_passes(self):
+        from services.outline_service import _validate_syntax
+        assert _validate_syntax("cmd", "invalid stuff")
+
+    # ── encoding ──
+
+    def test_valid_syntax_with_utf8_output(self):
+        """Syntax check should handle UTF-8 output from tools (no UnicodeDecodeError)."""
+        import subprocess
+        from unittest.mock import patch
+        from services.outline_service import _validate_syntax
+
+        # Simulate a real node --check that outputs UTF-8 characters
+        mock_result = subprocess.CompletedProcess(
+            args=["node", "--check", "test.js"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = _validate_syntax("javascript", "const x = 1;")
+            assert result is True
+            # Verify encoding=utf-8 was passed
+            call_kwargs = mock_run.call_args[1]
+            assert call_kwargs.get("encoding") == "utf-8"
+            assert call_kwargs.get("errors") == "replace"

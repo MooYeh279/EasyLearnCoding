@@ -4,12 +4,42 @@ import json
 import platform
 import re
 import time
+from typing import AsyncGenerator
 from config import AI_API_KEY_DEFAULT, AI_BASE_URL_DEFAULT, AI_MODEL_DEFAULT, \
-    PROMPTS_DIR, AI_GENERATION_TEMPERATURE
+    AI_GENERATION_TEMPERATURE, PROMPTS_DIR
 from logger import get_logger
 from llm import LLMProvider, OpenAILikeProvider
+from services.agent_loop import agent_loop
 
 logger = get_logger("ai")
+
+_TOOL_GUIDANCE = (
+    "\n\n## Available Tools\n"
+    "You have access to the following tools:\n"
+    "- `web_search(query)`: Search the web for current information, documentation, "
+    "or factual questions. Use this when you need up-to-date information or "
+    "when the topic is outside your knowledge cutoff.\n"
+    "- `web_fetch(url)`: Fetch and read the content of a specific URL. "
+    "Use this after `web_search` to read a page you found.\n\n"
+    "Guidelines:\n"
+    "- Only use tools when you genuinely need external information.\n"
+    "- If you already know the answer, generate content directly without calling tools.\n"
+    "- After 2-3 searches, synthesize what you have and produce output.\n"
+    "- Do NOT search if you are confident in your knowledge of the topic.\n\n"
+    "## Citation Rules (CRITICAL)\n"
+    "EVERY fact, concept, or code pattern you learned from a web search/fetch "
+    "MUST have a numbered citation marker in the body text WHERE that information "
+    "appears. This is NOT optional — the student must be able to trace every piece "
+    "of sourced information back to its origin.\n\n"
+    "Correct format in body text (inline markers in every paragraph that uses sourced info):\n"
+    "  Python 3.12 引入了新的类型参数语法 [1]，这使得泛型代码更加简洁。\n"
+    "  根据 PEP 695 规范 [2]，新语法支持...\n\n"
+    "At the end of the lesson, add a \"## 参考来源\" section:\n"
+    "  [1] https://docs.python.org/3/whatsnew/3.12.html - Python 3.12 新特性\n"
+    "  [2] https://peps.python.org/pep-0695/ - PEP 695 类型参数语法\n\n"
+    "If no external sources were used, omit the references section entirely.\n"
+    "CRITICAL: Every [N] in the references section MUST appear at least once in the body.\n"
+)
 
 _current_model = AI_MODEL_DEFAULT
 _provider: LLMProvider | None = None
@@ -112,66 +142,58 @@ def _build_lesson_messages(topic_title: str, language_name: str, section_title: 
     ]
 
 
-async def generate_outline_async(topic_title: str, language_name: str, previous_outline: dict | None = None,
-                           feedback: str | None = None, content_language: str = "zh") -> dict:
+def _build_outline_messages(topic_title: str, language_name: str, content_language: str,
+                            previous_outline: dict | None = None, feedback: str | None = None) -> list[dict]:
     content_lang_name = _lang_name(content_language)
-    logger.info("Generating outline for '%s' (%s) in %s, feedback=%s",
-                topic_title, language_name, content_language, bool(feedback))
-    start = time.perf_counter()
-    try:
-        prompt = _load_prompt("generate_outline.txt").format(
-            topic_title=topic_title,
-            language_name=language_name,
-            content_language=content_lang_name,
-            platform_info=get_platform_info(),
-        )
-        messages = [{"role": "system", "content": prompt}]
-
-        if previous_outline and feedback:
-            messages.append({
-                "role": "user",
-                "content": f"Previous outline:\n{json.dumps(previous_outline, ensure_ascii=False, indent=2)}\n\nUser feedback: {feedback}\n\nPlease regenerate the outline based on this feedback."
-            })
-        else:
-            messages.append({"role": "user", "content": f"Generate a learning outline for: {topic_title}"})
-
-        result = await _provider.chat_completion_async(
-            model=get_model(),
-            messages=messages,
-            temperature=AI_GENERATION_TEMPERATURE,
-        )
-        parsed = json.loads(result)
-        elapsed = time.perf_counter() - start
-        sections_count = len(parsed.get("sections", []))
-        logger.info("Outline generated: %d sections (%.2fs)", sections_count, elapsed)
-        return parsed
-    except Exception:
-        elapsed = time.perf_counter() - start
-        logger.exception("Outline generation failed for '%s' (%.2fs)", topic_title, elapsed)
-        raise
+    prompt = _load_prompt("generate_outline.txt").format(
+        topic_title=topic_title,
+        language_name=language_name,
+        content_language=content_lang_name,
+        platform_info=get_platform_info(),
+    )
+    messages = [{"role": "system", "content": prompt}]
+    if previous_outline and feedback:
+        messages.append({
+            "role": "user",
+            "content": (
+                f"Previous outline:\n{json.dumps(previous_outline, ensure_ascii=False, indent=2)}\n\n"
+                f"User feedback: {feedback}\n\nPlease regenerate the outline based on this feedback."
+            ),
+        })
+    else:
+        messages.append({"role": "user", "content": f"Generate a learning outline for: {topic_title}"})
+    return messages
 
 
-async def generate_lesson_async(topic_title: str, language_name: str, section_title: str,
-                                 lesson_title: str, content_language: str = "zh") -> str:
-    logger.info("Generating lesson async '%s/%s' (%s) in %s",
-                section_title, lesson_title, language_name, content_language)
-    start = time.perf_counter()
-    try:
-        messages = _build_lesson_messages(
-            topic_title, language_name, section_title, lesson_title, content_language)
-        result = await _provider.chat_completion_async(
-            model=get_model(),
-            messages=messages,
-            temperature=AI_GENERATION_TEMPERATURE,
-        )
-        elapsed = time.perf_counter() - start
-        logger.info("Lesson generated async: %d chars (%.2fs)", len(result), elapsed)
-        return result
-    except Exception:
-        elapsed = time.perf_counter() - start
-        logger.exception("Lesson generation async failed for '%s/%s' (%.2fs)",
-                         section_title, lesson_title, elapsed)
-        raise
+async def generate_outline_stream_async(
+    topic_title: str, language_name: str, content_language: str = "zh",
+    previous_outline: dict | None = None, feedback: str | None = None,
+    enable_tools: bool = False,
+) -> AsyncGenerator[dict, None]:
+    """Generate outline via agent loop, yielding SSE events."""
+    messages = _build_outline_messages(
+        topic_title, language_name, content_language, previous_outline, feedback)
+    if enable_tools and messages:
+        messages[0]["content"] += _TOOL_GUIDANCE
+    async for event in agent_loop(messages, get_model(), get_provider(),
+                                  enable_tools=enable_tools):
+        yield event
+
+
+async def generate_lesson_stream_async(
+    topic_title: str, language_name: str, section_title: str,
+    lesson_title: str, content_language: str = "zh",
+    enable_tools: bool = False,
+) -> AsyncGenerator[dict, None]:
+    """Generate lesson content via agent loop, yielding SSE events."""
+    messages = _build_lesson_messages(
+        topic_title, language_name, section_title, lesson_title, content_language)
+    if enable_tools and messages:
+        messages[0]["content"] += _TOOL_GUIDANCE
+    async for event in agent_loop(messages, get_model(), get_provider(),
+                                  enable_tools=enable_tools):
+        yield event
+
 
 
 def _strip_markdown_fences(text: str) -> str:

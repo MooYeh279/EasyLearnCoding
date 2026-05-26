@@ -55,6 +55,7 @@ export interface Lesson {
   order: number;
   content: string;
   lesson_type: 'concept' | 'example' | 'exercise' | 'summary';
+  has_content?: boolean;
 }
 
 export interface CellOutput {
@@ -83,6 +84,38 @@ export type NotebookCell = MarkdownCell | CodeCell;
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  toolCalls?: ToolCall[];
+}
+
+export interface ToolCall {
+  id?: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  name: string;
+  result: Record<string, unknown>;
+}
+
+export interface AgentEvent {
+  type: 'agent_start' | 'agent_thinking' | 'tool_call' | 'tool_result' | 'agent_done' | 'agent_error' | 'progress' | 'all_done' | 'outline_saved';
+  message?: string;
+  content?: string;
+  thinking?: string;
+  text?: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string;
+  lesson_id?: number;
+  lesson_title?: string;
+  total?: number;
+  current?: number;
+  current_section?: string;
+  current_lesson?: string;
+  sections?: OutlineSection[];
+  topic_id?: number;
 }
 
 export interface EnvComponent {

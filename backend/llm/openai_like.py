@@ -47,3 +47,36 @@ class OpenAILikeProvider(LLMProvider):
             async for chunk in stream:
                 if chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+
+    async def chat_completion_with_tools_async(self, model: str, messages: list[dict],
+                                                tools: list[dict] | None = None, **kwargs) -> dict:
+        """Return full response: {content: str|None, tool_calls: list[dict]|None}."""
+        async with AsyncOpenAI(
+            api_key=self._api_key, base_url=self._base_url, timeout=self._timeout,
+        ) as client:
+            create_kwargs = {**kwargs}
+            if tools:
+                create_kwargs["tools"] = tools
+            response = await client.chat.completions.create(
+                model=model, messages=messages, **create_kwargs,
+            )
+            msg = response.choices[0].message
+            result: dict = {"content": msg.content, "tool_calls": None}
+            reasoning = getattr(msg, "reasoning_content", None) or (
+                getattr(msg, "model_extra", {}) or {}
+            ).get("reasoning_content")
+            if reasoning:
+                result["reasoning_content"] = reasoning
+            if msg.tool_calls:
+                result["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ]
+            return result

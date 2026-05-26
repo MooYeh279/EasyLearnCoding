@@ -163,11 +163,15 @@ export default function LearningView() {
     doSave(updated);
   }, [doSave]);
 
-  const addCell = useCallback((type: 'markdown' | 'code') => {
+  const addCell = useCallback((type: 'markdown' | 'code', insertAt?: number) => {
     const newCell: NotebookCell = type === 'markdown'
       ? { id: generateId(), type: 'markdown', content: '## New Section\n\nWrite here...' }
       : { id: generateId(), type: 'code', language: 'python', code: '# write code here', output: null };
-    doSave([...cellsRef.current, newCell]);
+    const current = cellsRef.current;
+    const updated = insertAt != null
+      ? [...current.slice(0, insertAt), newCell, ...current.slice(insertAt)]
+      : [...current, newCell];
+    doSave(updated);
   }, [doSave]);
 
   const handleRegenerate = useCallback(() => {
@@ -284,6 +288,8 @@ export default function LearningView() {
               onChange={handleCellChange}
               onDelete={handleCellDelete}
               onMove={handleCellMove}
+              onInsertAbove={() => addCell(cell.type === 'markdown' ? 'markdown' : 'code', idx)}
+              onInsertBelow={() => addCell(cell.type === 'markdown' ? 'markdown' : 'code', idx + 1)}
               onEditStart={handleEditStart}
               onEditCancel={handleEditCancel}
             />
