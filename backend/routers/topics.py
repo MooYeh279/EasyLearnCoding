@@ -92,6 +92,21 @@ def _reset_outline_status(topic_id: int):
         reset_db.close()
 
 
+def _reset_content_to_outline(topic_id: int):
+    """Reset a topic from generating_content back to outline_ready so failed
+    lessons can be re-generated."""
+    reset_db = SessionLocal()
+    try:
+        tp = reset_db.query(Topic).filter(Topic.id == topic_id).first()
+        if tp and tp.status == TopicStatus.generating_content:
+            tp.status = TopicStatus.outline_ready
+            tp.generation_progress = None
+            reset_db.commit()
+            logger.info("Topic %s reset to outline_ready due to generation failures", topic_id)
+    finally:
+        reset_db.close()
+
+
 @router.post("/courses/{course_id}/topics", status_code=201)
 def create_topic(course_id: int, body: TopicCreate, db: Session = Depends(get_db)):
     topic = Topic(course_id=course_id, title=body.title, status=TopicStatus.draft)
@@ -402,6 +417,7 @@ async def _run_lesson_task(
     """Generate content for one lesson and push events to the shared queue."""
     async with sem:
         full_text = ""
+        failed = False
         try:
             async for event in generate_lesson_stream_async(
                 topic_title=topic_title,
@@ -414,17 +430,22 @@ async def _run_lesson_task(
                 if event["type"] == "agent_done":
                     full_text = event["text"]
                 elif event["type"] == "agent_error":
-                    full_text = f"[Generation failed: {event.get('error', 'Unknown error')}]"
+                    logger.error(
+                        "Lesson agent_error: lesson_id=%s title=%s error=%s",
+                        task["lesson_id"], task["lesson_title"], event.get("error"),
+                    )
+                    failed = True
                     await event_queue.put({
                         **event,
                         "lesson_id": task["lesson_id"],
                         "lesson_title": task["lesson_title"],
                     })
-                # Skip agent_thinking/tool_call/tool_result/agent_done —
-                # frontend only needs progress + errors for content generation
+                    break
+                # generate_lesson_stream_async only yields agent_done/agent_error —
+                # frontend only needs progress + final results for content generation
         except Exception:
             logger.exception("Lesson generation failed: lesson_id=%s title=%s", task["lesson_id"], task["lesson_title"])
-            full_text = f"[Generation failed: unexpected error for {task['lesson_title']}]"
+            failed = True
             await event_queue.put({
                 "type": "agent_error",
                 "lesson_id": task["lesson_id"],
@@ -432,7 +453,10 @@ async def _run_lesson_task(
                 "error": f"Unexpected error generating {task['lesson_title']}",
             })
 
-        _save_lesson(task["lesson_id"], full_text, language_name)
+        if not failed:
+            _save_lesson(task["lesson_id"], full_text, language_name)
+        else:
+            progress["failed_count"] += 1
 
         progress["completed"] += 1
         await event_queue.put({
@@ -442,6 +466,7 @@ async def _run_lesson_task(
             "current_section": task["section_title"],
             "current_lesson": task["lesson_title"],
             "lesson_id": task["lesson_id"],
+            "failed": failed,
         })
 
         _update_progress(topic_id, progress["completed"], total, task)
@@ -493,7 +518,7 @@ async def generate_content_stream(topic_id: int, body: ContentGenerateRequest = 
             return
 
         sem = asyncio.Semaphore(AI_MAX_CONCURRENCY)
-        progress = {"completed": 0}
+        progress = {"completed": 0, "failed_count": 0}
         event_queue: asyncio.Queue = asyncio.Queue()
 
         async def producer():
@@ -501,7 +526,10 @@ async def generate_content_stream(topic_id: int, body: ContentGenerateRequest = 
                 _run_lesson_task(t, topic_title, language_name, body.content_language, sem, event_queue, progress, total, topic_id, enable_tools)
                 for t in lesson_tasks
             ), return_exceptions=True)
-            _mark_content_ready(topic_id)
+            if progress["failed_count"] > 0:
+                _reset_content_to_outline(topic_id)
+            else:
+                _mark_content_ready(topic_id)
             await event_queue.put(None)
 
         producer_task = asyncio.create_task(producer())
@@ -514,7 +542,7 @@ async def generate_content_stream(topic_id: int, body: ContentGenerateRequest = 
                 yield f"event: {item.get('type', 'message')}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
 
             await producer_task
-            yield f"event: all_done\ndata: {json.dumps({'type': 'all_done', 'topic_id': topic_id})}\n\n"
+            yield f"event: all_done\ndata: {json.dumps({'type': 'all_done', 'topic_id': topic_id, 'failed_count': progress['failed_count']})}\n\n"
         except (GeneratorExit, asyncio.CancelledError, ConnectionError):
             # Client disconnected — producer continues in background,
             # _mark_content_ready is called by producer when all lessons complete.

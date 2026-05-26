@@ -115,8 +115,6 @@ export default function TopicDetail() {
   const mountedRef = useRef(true);
   const eventsRef = useRef<AgentEvent[]>([]);
   const rafRef = useRef<number>(0);
-  const completedLessonIdsRef = useRef<Set<number>>(new Set());
-
   // Cleanup on unmount: abort in-flight SSE, prevent further setState
   useEffect(() => {
     mountedRef.current = true;
@@ -505,7 +503,6 @@ export default function TopicDetail() {
     setTopic((prev) => prev ? { ...prev, status: 'generating_content' as const } : prev);
     setGenProgress({ current: 0, total: 0, lesson: '' });
     genProgressRef.current = { current: 0, total: 0, lesson: '' };
-    completedLessonIdsRef.current.clear();
 
     try {
       await api.generateContentStream(
@@ -513,41 +510,15 @@ export default function TopicDetail() {
         (event) => {
           if (!mountedRef.current) return;
           if (event.type === 'progress') {
-            // Buffer progress in ref, flush via shared RAF
             genProgressRef.current = {
               current: event.current || 0,
               total: event.total || 0,
               lesson: event.current_lesson || '',
             };
-            if (event.lesson_id) {
-              completedLessonIdsRef.current.add(event.lesson_id);
-            }
             if (!rafRef.current) {
               rafRef.current = requestAnimationFrame(() => {
                 if (!mountedRef.current) return;
                 setGenProgress({ ...genProgressRef.current });
-                const completedIds = new Set(completedLessonIdsRef.current);
-                completedLessonIdsRef.current.clear();
-                if (completedIds.size > 0) {
-                  setTopic((prev) => {
-                    if (!prev || !prev.sections) return prev;
-                    let changed = false;
-                    const next = {
-                      ...prev,
-                      sections: prev.sections.map((sec) => ({
-                        ...sec,
-                        lessons: (sec.lessons || []).map((les) => {
-                          if (completedIds.has(les.id) && !les.has_content) {
-                            changed = true;
-                            return { ...les, has_content: true };
-                          }
-                          return les;
-                        }),
-                      })),
-                    };
-                    return changed ? next : prev;
-                  });
-                }
                 rafRef.current = 0;
               });
             }

@@ -211,3 +211,77 @@ async def test_agent_loop_arguments_json_error() -> None:
 
     done = next(e for e in events if e["type"] == "agent_done")
     assert done["text"] == "Retry completed."
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_force_stop_rejects_tool_calls() -> None:
+    """After force_stop, if model still returns tool_calls via standard channel,
+    agent_loop should reject them and eventually get a text response."""
+    from services.agent_loop import agent_loop, TOOL_TURN_FORCE
+
+    tool_call_resp = {
+        "content": None,
+        "tool_calls": [{"id": "1", "type": "function", "function": {"name": "web_search", "arguments": '{"query": "more"}'}}],
+    }
+    # First TOOL_TURN_FORCE calls execute tools, then model calls tools again
+    # (force_stop triggers), then finally gives a text answer.
+    responses = [tool_call_resp] * TOOL_TURN_FORCE
+    # After force_stop, model tries one more tool call
+    responses.append(tool_call_resp)
+    # Then model finally outputs text
+    responses.append({"content": "Final answer based on gathered info.", "tool_calls": None})
+
+    provider = FakeProvider(responses)
+
+    events = []
+    async for event in agent_loop(
+        messages=[{"role": "user", "content": "Search a lot"}],
+        model="test-model",
+        provider=provider,
+        tools=[{"type": "function", "function": {"name": "web_search", "parameters": {}}}],
+    ):
+        events.append(event)
+
+    done = next(e for e in events if e["type"] == "agent_done")
+    assert done["text"] == "Final answer based on gathered info."
+
+    # The last tool_call after force_stop should NOT produce a tool_result
+    # (tools are rejected, not executed)
+    tool_results = [e for e in events if e["type"] == "tool_result"]
+    assert len(tool_results) == TOOL_TURN_FORCE
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_tools_always_passed() -> None:
+    """Tools should always be passed to the API even after force_stop,
+    so the model uses standard tool_calls channel instead of proprietary tags."""
+    from services.agent_loop import agent_loop
+
+    captured_tools: list[list[dict] | None] = []
+
+    class CapturingProvider:
+        async def chat_completion_with_tools_async(
+            self, model: str, messages: list[dict], tools: list[dict] | None = None, **kwargs
+        ) -> dict:
+            captured_tools.append(tools)
+            if not captured_tools or len(captured_tools) <= 1:
+                return {
+                    "content": None,
+                    "tool_calls": [{"id": "1", "type": "function", "function": {"name": "web_search", "arguments": '{"query": "x"}'}}],
+                }
+            return {"content": "Done.", "tool_calls": None}
+
+    provider = CapturingProvider()
+    tool_defs = [{"type": "function", "function": {"name": "web_search", "parameters": {}}}]
+
+    events = []
+    async for event in agent_loop(
+        messages=[{"role": "user", "content": "Search"}],
+        model="test-model",
+        provider=provider,
+        tools=tool_defs,
+    ):
+        events.append(event)
+
+    # Every call should have received tools (never None)
+    assert all(t is not None for t in captured_tools)

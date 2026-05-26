@@ -61,6 +61,7 @@ export default function LearningView() {
 
   useEffect(() => {
     if (!lessonIdParam) return;
+    setRegenerating(false);
     setLessonLoading(true);
     let cancelled = false;
     api.getLesson(Number(lessonIdParam))
@@ -184,8 +185,10 @@ export default function LearningView() {
       okButtonProps: { style: { background: C.primary, borderColor: C.primary } },
       onOk: async () => {
         setRegenerating(true);
+        const targetId = lesson.id;
         try {
-          const updated = await api.regenerateLesson(lesson.id);
+          const updated = await api.regenerateLesson(targetId);
+          if (lessonRef.current?.id !== targetId) return;
           lessonRef.current = { ...lesson, content: updated.content };
           setCurrentLesson({ ...lesson, content: updated.content });
           const parsed = parseCells(updated.content);
@@ -196,7 +199,7 @@ export default function LearningView() {
         } catch (err: any) {
           message.error(t('learn.regenerateFail'));
         } finally {
-          setRegenerating(false);
+          if (lessonRef.current?.id === targetId) setRegenerating(false);
         }
       },
     });

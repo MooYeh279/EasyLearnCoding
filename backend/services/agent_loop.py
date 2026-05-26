@@ -13,6 +13,16 @@ MAX_TURNS = 10
 TOOL_TURN_WARN = 5
 TOOL_TURN_FORCE = 7
 
+_FORCE_STOP_PROMPT = (
+    "You have done enough research. Stop using tools and generate the final content NOW "
+    "based on what you have gathered. Do NOT call any more tools — write the complete output immediately."
+)
+
+_WARN_SLOW_PROMPT = (
+    "You should have enough information by now. Try to generate the content with what you have. "
+    "Only search if absolutely essential for a missing piece."
+)
+
 
 async def _execute_tool(tool_name: str, args: dict) -> tuple:
     """Execute a single tool and return (result, summary_str)."""
@@ -87,11 +97,15 @@ async def agent_loop(
         effective_tools = tools if tools is not None else get_tool_definitions()
     turn = 0
     tool_turns = 0
+    force_stop = False
 
     while turn < max_turns:
         turn += 1
 
         try:
+            # Always pass tools when available so the model uses the standard
+            # tool_calls channel instead of leaking proprietary tags (e.g. DSML)
+            # into content when tools are unexpectedly absent from the API.
             response = await provider.chat_completion_with_tools_async(
                 model=model,
                 messages=messages,
@@ -117,21 +131,37 @@ async def agent_loop(
                 yield {"type": "agent_thinking", "content": "Thinking..."}
             continue
 
+        # Model returned tool_calls — decide whether to execute or reject.
+        if force_stop:
+            logger.warning("Model called tools after force_stop; injecting refusal and retrying")
+            # Record the model's intent without executing, so the conversation
+            # history stays coherent for the next LLM call.
+            msg: dict = {"role": "assistant", "content": content, "tool_calls": tool_calls}
+            if reasoning:
+                msg["reasoning_content"] = reasoning
+            messages.append(msg)
+            for tc in tool_calls:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": "Tool calls are no longer allowed. Provide your final answer in plain text.",
+                })
+            messages.append({
+                "role": "system",
+                "content": _FORCE_STOP_PROMPT,
+            })
+            yield {"type": "agent_thinking", "content": "Waiting for final output..."}
+            continue
+
         if content and effective_tools:
             yield {"type": "agent_thinking", "content": content}
 
         tool_turns += 1
         if tool_turns >= TOOL_TURN_FORCE:
-            effective_tools = None
-            messages.append({
-                "role": "system",
-                "content": "You have done enough research. Stop using tools and generate the final content NOW based on what you have gathered. Do NOT search anymore — write the complete output immediately.",
-            })
+            force_stop = True
+            messages.append({"role": "system", "content": _FORCE_STOP_PROMPT})
         elif tool_turns >= TOOL_TURN_WARN:
-            messages.append({
-                "role": "system",
-                "content": "You should have enough information by now. Try to generate the content with what you have. Only search if absolutely essential for a missing piece.",
-            })
+            messages.append({"role": "system", "content": _WARN_SLOW_PROMPT})
 
         async for event in _process_tool_calls(messages, tool_calls, content, reasoning):
             yield event

@@ -185,14 +185,17 @@ async def generate_lesson_stream_async(
     lesson_title: str, content_language: str = "zh",
     enable_tools: bool = False,
 ) -> AsyncGenerator[dict, None]:
-    """Generate lesson content via agent loop, yielding SSE events."""
+    """Generate lesson content via agent loop. Only yields the final agent_done
+    or agent_error event — intermediate tool_call/tool_result/agent_thinking
+    events stay server-side."""
     messages = _build_lesson_messages(
         topic_title, language_name, section_title, lesson_title, content_language)
     if enable_tools and messages:
         messages[0]["content"] += _TOOL_GUIDANCE
     async for event in agent_loop(messages, get_model(), get_provider(),
                                   enable_tools=enable_tools):
-        yield event
+        if event["type"] in ("agent_done", "agent_error"):
+            yield event
 
 
 

@@ -39,7 +39,8 @@ async def test_generate_lesson_stream() -> None:
 
 @pytest.mark.asyncio
 async def test_generate_lesson_stream_with_tools() -> None:
-    """generate_lesson_stream_async should support tool calling via agent loop."""
+    """generate_lesson_stream_async should only yield agent_done/agent_error,
+    not intermediate tool_call/tool_result events."""
     from services.ai_service import generate_lesson_stream_async
 
     provider = FakeProvider([
@@ -55,8 +56,7 @@ async def test_generate_lesson_stream_with_tools() -> None:
     ):
         events = [e async for e in generate_lesson_stream_async("Topic", "Python", "Section", "Lesson")]
 
+    # Only agent_done should be yielded; tool_call/tool_result are filtered.
     types = [e["type"] for e in events]
-    assert "tool_call" in types
-    assert "tool_result" in types
-    assert events[-1]["type"] == "agent_done"
+    assert types == ["agent_done"]
     assert events[-1]["text"] == "Final answer."
