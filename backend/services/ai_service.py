@@ -316,7 +316,8 @@ async def generate_exercise_async(
                     f"The previous exercise had these errors:\n{error_feedback}\n\n"
                     "IMPORTANT: Make sure the 'solution' field contains valid, runnable "
                     f"{language_name} code with NO syntax errors. "
-                    "Verify the code can actually execute."
+                    "Verify the test_input expressions are self-contained and evaluate "
+                    "to int, float, string, or bool only."
                 ),
             })
 
