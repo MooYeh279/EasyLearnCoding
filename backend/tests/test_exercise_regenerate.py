@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch, AsyncMock
 
 from services.exercise_schema import (
-    FunctionSignature, TestCaseSpec, RawExerciseOutput, ValidationResult,
+    TestInput, RawExerciseOutput, ValidationResult,
 )
 from services.exercise_service import validate_exercise
 
@@ -12,9 +12,8 @@ def _make_raw_exercise() -> RawExerciseOutput:
     return RawExerciseOutput(
         question="Implement the add function",
         solution="def add(a, b):\n    return a + b",
-        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="1+2", input="add(1, 2)", expected="3"),
+        test_inputs=[
+            TestInput(name="1+2", input="add(1, 2)"),
         ],
         hints=["Think about addition"],
     )
