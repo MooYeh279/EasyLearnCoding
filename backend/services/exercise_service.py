@@ -60,7 +60,13 @@ def compute_expected(language: str, solution: str, test_inputs: list[dict]) -> l
     )
 
     if result.error and result.error.startswith("Compilation failed"):
-        raise ValueError(f"Compute script compilation failed: {result.error[-200:]}")
+        raise ValueError(f"Compilation failed: {result.error[-300:]}")
+
+    if result.exit_code != 0:
+        raise ValueError(
+            f"Execution failed (exit {result.exit_code}): "
+            f"{result.stderr[-300:] or result.stdout[-300:] or 'no output'}"
+        )
 
     output = result.stdout + result.stderr
     parsed = _parse_compute_results(output)
@@ -101,7 +107,7 @@ def _extract_func_names_from_solution(solution: str, language: str) -> list[str]
         for m in re.finditer(r'(?:def|class)\s+(\w+)', solution):
             names.append(m.group(1))
     elif language == "bash":
-        for m in re.finditer(r'(?:function\s+)?(\w+)\s*\(\)', solution):
+        for m in re.finditer(r'(?:function\s+)?([\w-]+)\s*(?:\(\))?\s*\{', solution):
             names.append(m.group(1))
     elif language in ("c", "cpp"):
         for m in re.finditer(r'\w[\w\s*&:<>]*\s+(\w+)\s*\([^)]*\)\s*\{', solution):
@@ -258,17 +264,21 @@ def validate_exercise(
             error=f"None of the function names {func_names} appear in the question",
         )
 
-    # Layer 3: Compute expected values, then run assertions
+    # Layer 3: Compute expected values, then verify with assertion harness
     input_dicts = [{"name": ti.name, "input": ti.input} for ti in exercise.test_inputs]
-    test_cases = compute_expected(language, exercise.solution, input_dicts)
+    try:
+        test_cases = compute_expected(language, exercise.solution, input_dicts)
+    except ValueError as e:
+        msg = str(e)
+        if "compilation failed" in msg.lower():
+            return ValidationResult(valid=False, layer="compile", error=msg)
+        return ValidationResult(valid=False, layer="run", error=msg)
+
     run_result = run_exercise_code(language, exercise.solution, test_cases, label="solution")
 
     if run_result.get("error", "").startswith("Compilation failed"):
         return ValidationResult(
-            valid=False,
-            layer="compile",
-            error=run_result["error"],
-        )
+            valid=False, layer="compile", error=run_result["error"])
 
     if not run_result.get("all_passed"):
         failed = [r for r in run_result.get("results", []) if not r.get("passed")]
@@ -276,15 +286,7 @@ def validate_exercise(
             f"{f['name']}: {f.get('error', 'test failed')}" for f in failed
         ) if failed else run_result.get("error", "unknown")
         return ValidationResult(
-            valid=False,
-            layer="run",
-            error=error_detail,
-            test_results=run_result,
-        )
+            valid=False, layer="run", error=error_detail, test_results=run_result)
 
     return ValidationResult(
-        valid=True,
-        layer="run",
-        error="",
-        test_results=run_result,
-    )
+        valid=True, layer="run", error="", test_results=run_result)

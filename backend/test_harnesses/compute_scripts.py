@@ -36,12 +36,15 @@ def build_javascript_compute(solution: str, test_inputs: list[dict]) -> str:
 
 def build_c_compute(solution: str, test_inputs: list[dict]) -> str:
     printf_lines = []
-    for ti in test_inputs:
+    for i, ti in enumerate(test_inputs):
         name = _escape_json(ti["name"])
         expr = ti["input"]
         func_name = _extract_func_name(expr)
         ret_type = _extract_c_return_type(solution, func_name)
         fmt, ttag = _c_format_info(ret_type)
+        comma = "" if i == 0 else '    printf(",");'
+        if comma:
+            printf_lines.append(comma)
         printf_lines.append(
             f'    printf("{{\\"name\\":\\"{name}\\",\\"value\\":\\"{fmt}\\",\\"type\\":\\"{ttag}\\"}}", {expr});'
         )
@@ -50,12 +53,15 @@ def build_c_compute(solution: str, test_inputs: list[dict]) -> str:
 
 def build_cpp_compute(solution: str, test_inputs: list[dict]) -> str:
     cout_lines = []
-    for ti in test_inputs:
+    for i, ti in enumerate(test_inputs):
         name = _escape_json(ti["name"])
         expr = ti["input"]
         func_name = _extract_func_name(expr)
         ret_type = _extract_c_return_type(solution, func_name)
         _, ttag = _c_format_info(ret_type)
+        comma = "" if i == 0 else '    std::cout << ",";'
+        if comma:
+            cout_lines.append(comma)
         cout_lines.append(
             f'    std::cout << "{{\\"name\\":\\"{name}\\",\\"value\\":\\"" << {expr} << "\\",\\"type\\":\\"{ttag}\\"}}";'
         )

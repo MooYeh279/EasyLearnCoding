@@ -30,6 +30,7 @@ def test_layer3_run_passes():
     )
     result = validate_exercise("python", exercise)
     assert result.valid is True
+    assert result.layer == "run"
     assert result.test_results is not None
     assert result.test_results["all_passed"] is True
 

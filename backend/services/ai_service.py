@@ -105,20 +105,26 @@ def _lang_name(code: str) -> str:
     return "Chinese (中文)" if code == "zh" else "English"
 
 
-def get_platform_info() -> str:
+def get_platform_info(language: str = "") -> str:
     """Return a concise platform description for AI prompts.
 
-    Tells the AI what OS and shell the student is using, so it can generate
-    correct command-line examples and code that actually runs.
+    When generating exercises in bash/shell, the student always has bash
+    available regardless of OS. For other languages on Windows,
+    command-line examples should use cmd/powershell syntax.
     """
     system = platform.system()
     if system == "Windows":
-        return (
+        base = (
             "Windows — runnable code blocks must use cmd syntax for ```bat / ```cmd "
             "(commands: dir, type, echo, set, etc.) or powershell syntax for "
             "```powershell / ```ps1 (commands: Get-ChildItem, Write-Output, etc.). "
-            "NO bash/sh/Unix commands available. Paths use backslashes (C:\\\\Users\\...)."
+            "Paths use backslashes (C:\\\\Users\\...)."
         )
+        if language in ("bash", "shell"):
+            base += " For bash/shell code: bash IS available and works normally."
+        else:
+            base += " NO bash/sh/Unix commands available."
+        return base
     elif system == "Darwin":
         return "macOS — Unix environment, bash/zsh available, paths like /Users/..."
     else:
@@ -303,7 +309,7 @@ async def generate_exercise_async(
             section_title=section_title,
             knowledge_description=knowledge_description,
             content_language=content_lang_name,
-            platform_info=get_platform_info(),
+            platform_info=get_platform_info(language_name),
         )
         messages = [
             {"role": "system", "content": prompt},
