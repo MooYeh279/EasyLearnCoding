@@ -10,13 +10,12 @@ from __future__ import annotations
 
 def build_python_compute(solution: str, test_inputs: list[dict]) -> str:
     input_lines = []
-    for ti in test_inputs:
+    for i, ti in enumerate(test_inputs):
         name = _escape_json(ti["name"])
         expr = ti["input"]
         input_lines.append(
-            f'_results.append({{"name": "{name}", '
-            f'"value": repr({expr}), '
-            f'"type": __type__({expr})}})'
+            f'_v{i} = {expr}\n'
+            f'_results.append({{"name": "{name}", "value": repr(_v{i}), "type": __type__(_v{i})}})'
         )
     return _PYTHON_COMPUTE.format(
         solution=solution, test_inputs="\n".join(input_lines),
@@ -25,11 +24,12 @@ def build_python_compute(solution: str, test_inputs: list[dict]) -> str:
 
 def build_javascript_compute(solution: str, test_inputs: list[dict]) -> str:
     input_lines = []
-    for ti in test_inputs:
+    for i, ti in enumerate(test_inputs):
         name = _escape_json(ti["name"])
         expr = ti["input"]
         input_lines.append(
-            f'  results.push({{name: "{name}", value: String(__val__({expr})), type: String(__type__({expr}))}});'
+            f'  const _v{i} = {expr};\n'
+            f'  results.push({{name: "{name}", value: String(__val__(_v{i})), type: String(__type__(_v{i}))}});'
         )
     return _JS_COMPUTE.format(solution=solution, test_inputs="\n".join(input_lines))
 
@@ -56,14 +56,12 @@ def build_cpp_compute(solution: str, test_inputs: list[dict]) -> str:
     for i, ti in enumerate(test_inputs):
         name = _escape_json(ti["name"])
         expr = ti["input"]
-        func_name = _extract_func_name(expr)
-        ret_type = _extract_c_return_type(solution, func_name)
-        _, ttag = _c_format_info(ret_type)
         comma = "" if i == 0 else '    std::cout << ",";'
         if comma:
             cout_lines.append(comma)
         cout_lines.append(
-            f'    std::cout << "{{\\"name\\":\\"{name}\\",\\"value\\":\\"" << {expr} << "\\",\\"type\\":\\"{ttag}\\"}}";'
+            f'    auto _v{i} = {expr};\n'
+            f'    std::cout << "{{\\"name\\":\\"{name}\\",\\"value\\":\\"" << _v{i} << "\\",\\"type\\":\\"" << __tag__(_v{i}) << "\\"}}";'
         )
     return _CPP_COMPUTE.format(solution=solution, test_inputs="\n".join(cout_lines))
 
@@ -136,12 +134,19 @@ int main() {{
 """
 
 _CPP_COMPUTE = """\
-#include <iostream>
 #include <string>
 #include <vector>
 #include <cmath>
+#include <iostream>
 
 {solution}
+
+const char* __tag__(int)           {{ return "int"; }}
+const char* __tag__(double)        {{ return "float"; }}
+const char* __tag__(float)         {{ return "float"; }}
+const char* __tag__(bool)          {{ return "bool"; }}
+const char* __tag__(char)          {{ return "char"; }}
+const char* __tag__(const std::string&) {{ return "str"; }}
 
 int main() {{
     std::cout << "__RESULTS__[";
@@ -198,7 +203,7 @@ def _c_format_info(return_type: str) -> tuple[str, str]:
     if 'float' in rt or 'double' in rt:
         return '%f', 'float'
     if 'char' in rt:
-        return '%c', 'str'
+        return '%c', 'char'
     if 'string' in rt:
         return '%s', 'str'
     if 'bool' in rt.lower():

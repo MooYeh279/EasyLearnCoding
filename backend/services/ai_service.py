@@ -131,6 +131,32 @@ def get_platform_info(language: str = "") -> str:
         return "Linux — Unix environment, bash available, paths like /home/..."
 
 
+def _get_language_note(language: str) -> str:
+    """Language-specific guidance for exercise generation."""
+    notes = {
+        "c": (
+            "IMPORTANT: C does not have classes. Use struct definitions with "
+            "standalone functions. Struct fields are accessed with the '.' operator."
+        ),
+        "cpp": "",
+        "javascript": (
+            "IMPORTANT: Do NOT use 'export' keyword. The student's code will be "
+            "run as a plain script, not a module. Functions and classes must be "
+            "defined without export."
+        ),
+        "typescript": (
+            "IMPORTANT: Do NOT use 'export' keyword. The student's code will be "
+            "run as a plain script via tsx, not a module. Functions and classes "
+            "must be defined without export."
+        ),
+        "bash": (
+            "Bash functions print output via echo (not return). Use `echo` to "
+            "produce function results that can be captured."
+        ),
+    }
+    return notes.get(language, "")
+
+
 def _build_lesson_messages(topic_title: str, language_name: str, section_title: str,
                            lesson_title: str, content_language: str):
     content_lang_name = _lang_name(content_language)
@@ -310,6 +336,7 @@ async def generate_exercise_async(
             knowledge_description=knowledge_description,
             content_language=content_lang_name,
             platform_info=get_platform_info(language_name),
+            language_note=_get_language_note(language_name),
         )
         messages = [
             {"role": "system", "content": prompt},

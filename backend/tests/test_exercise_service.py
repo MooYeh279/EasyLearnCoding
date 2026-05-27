@@ -105,7 +105,7 @@ def test_build_exercise_script_python():
     script = build_exercise_script("python", "def add(a, b): return a + b", cases)
     assert script is not None
     assert "__test__" in script
-    assert "__assert__(add(1, 2) == 3)" in script
+    assert "__check__(add(1, 2), 3)" in script
 
 
 def test_parse_test_results_success():

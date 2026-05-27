@@ -25,7 +25,7 @@ __test__() {
     if [ "$actual" = "$expected" ]; then
         __results+='{"name":"'"$(__escaped "$name")"'","passed":true}'
     else
-        __results+='{"name":"'"$(__escaped "$name")"'","passed":false,"error":"Got: '"$(__escaped "$actual")"'"}'
+        __results+='{"name":"'"$(__escaped "$name")"'","passed":false,"error":"expected: '"$(__escaped "$expected")"', got: '"$(__escaped "$actual")"'"}'
     fi
 }
 

@@ -71,7 +71,7 @@ class TestCppHarness:
         """C++ string assertions use == (not strcmp)."""
         solution = 'std::string greet(std::string name) { return "Hello, " + name; }'
         cases = [
-            TestCase(name="alice", input='greet("Alice")', expected='"Hello, Alice"', type="str"),
+            TestCase(name="alice", input='greet("Alice")', expected="Hello, Alice", type="str"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -133,7 +133,7 @@ class TestCHarness:
         """C string assertions use strcmp."""
         solution = 'const char* greet() { return "hello"; }'
         cases = [
-            TestCase(name="hello", input="greet()", expected='"hello"', type="str"),
+            TestCase(name="hello", input="greet()", expected="hello", type="str"),
         ]
         result = _compile_and_run("c", solution, cases)
         assert result.get("all_passed") is True

@@ -9,10 +9,10 @@ CPP_HARNESS = """\
 
 static constexpr double _EPS = 1e-4;
 
-#define __TEST__(name, expr) do { \\
+#define __TEST__(name, expr, expected_str) do { \\
     if (!_first_test) _json_out << ","; \\
     if (expr) _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":true}"; \\
-    else _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}"; \\
+    else _json_out << "{\\"name\\":\\"" << name << "\\",\\"passed\\":false,\\"error\\":\\"expected " << expected_str << "\\"}"; \\
     _first_test = 0; \\
 } while(0)
 

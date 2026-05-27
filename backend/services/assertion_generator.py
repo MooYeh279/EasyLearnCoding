@@ -27,28 +27,40 @@ def _escape_name(name: str) -> str:
 
 def _python_assert(tc: TestCase) -> str:
     escaped = _escape_name(tc.name)
-    return f'__test__("{escaped}", lambda: __assert__({tc.input} == {tc.expected}))'
+    return f'__test__("{escaped}", lambda: __check__({tc.input}, {tc.expected}))'
 
 
 def _js_assert(tc: TestCase) -> str:
     escaped = _escape_name(tc.name)
-    return f'__test__("{escaped}", () => {{ __assert__(__deepEq__({tc.input}, {tc.expected})) }})'
+    expected = tc.expected
+    if tc.type == "str":
+        expected_escaped = expected.replace("\\", "\\\\").replace('"', '\\"')
+        expected = f'"{expected_escaped}"'
+    return f'__test__("{escaped}", () => {{ __check__({tc.input}, {expected}) }})'
 
 
 def _c_assert(tc: TestCase) -> str:
     escaped = _escape_name(tc.name)
+    expected_str = tc.expected.replace("\\", "\\\\").replace('"', '\\"')
     if tc.type == "str":
-        return f'__TEST__("{escaped}", (strcmp({tc.input}, {tc.expected}) == 0));'
+        return f'__TEST__("{escaped}", (strcmp({tc.input}, "{expected_str}") == 0), "{expected_str}");'
+    if tc.type == "char":
+        return f'__TEST__("{escaped}", ({tc.input} == \'{expected_str}\'), "\'{expected_str}\'");'
     if tc.type == "float":
         return f'__APPROX__("{escaped}", {tc.input}, {tc.expected});'
-    return f'__TEST__("{escaped}", ({tc.input} == {tc.expected}));'
+    return f'__TEST__("{escaped}", ({tc.input} == {tc.expected}), "{expected_str}");'
 
 
 def _cpp_assert(tc: TestCase) -> str:
     escaped = _escape_name(tc.name)
+    expected_str = tc.expected.replace("\\", "\\\\").replace('"', '\\"')
+    if tc.type == "str":
+        return f'__TEST__("{escaped}", ({tc.input} == "{expected_str}"), "\\"{expected_str}\\"");'
+    if tc.type == "char":
+        return f'__TEST__("{escaped}", ({tc.input} == \'{expected_str}\'), "\'{expected_str}\'");'
     if tc.type == "float":
         return f'__APPROX__("{escaped}", {tc.input}, {tc.expected});'
-    return f'__TEST__("{escaped}", ({tc.input} == {tc.expected}));'
+    return f'__TEST__("{escaped}", ({tc.input} == {tc.expected}), "{expected_str}");'
 
 
 def _bash_assert(tc: TestCase) -> str:

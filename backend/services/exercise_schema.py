@@ -14,7 +14,7 @@ class TestCase(BaseModel):
     """A complete test case with system-computed expected value and type."""
     name: str = Field(min_length=1)
     input: str = Field(min_length=1)
-    expected: str = Field(min_length=1)
+    expected: str = ""  # empty string is a valid string result
     type: str = Field(default="int")  # "str" | "int" | "float" | "bool"
 
 

@@ -38,12 +38,25 @@ def _extract_json(text: str, start: int) -> str:
     return text[start:]
 
 
+def _strip_export(solution: str, language: str) -> str:
+    """Strip 'export ' keyword from JS/TS solutions to avoid ES module issues.
+
+    Node.js treats files with `export` as ES modules, which conflicts
+    with the assertion harness that runs via CJS `node file.js`.
+    """
+    if language in ("javascript", "typescript"):
+        import re
+        solution = re.sub(r'\bexport\s+', '', solution)
+    return solution
+
+
 def compute_expected(language: str, solution: str, test_inputs: list[dict]) -> list[dict]:
     """Run solution against test_inputs and return complete test cases.
 
     Each input dict must have 'name' and 'input'.
     Returns list of dicts with: name, input, expected, type.
     """
+    solution = _strip_export(solution, language)
     from test_harnesses.compute_scripts import BUILDERS as COMPUTE_BUILDERS
     from services.code_runner import execute_code
 
@@ -110,12 +123,16 @@ def _extract_func_names_from_solution(solution: str, language: str) -> list[str]
         for m in re.finditer(r'(?:function\s+)?([\w-]+)\s*(?:\(\))?\s*\{', solution):
             names.append(m.group(1))
     elif language in ("c", "cpp"):
+        for m in re.finditer(r'(?:class|struct)\s+(\w+)', solution):
+            names.append(m.group(1))
         for m in re.finditer(r'\w[\w\s*&:<>]*\s+(\w+)\s*\([^)]*\)\s*\{', solution):
             name = m.group(1)
             if name not in ("if", "for", "while", "switch", "main"):
                 names.append(name)
     elif language in ("javascript", "typescript"):
         for m in re.finditer(r'(?:function|class)\s+(\w+)', solution):
+            names.append(m.group(1))
+        for m in re.finditer(r'(?:const|let|var)\s+(\w+)\s*=', solution):
             names.append(m.group(1))
         for m in re.finditer(r'(?<!function\s)(?<!\w)(\w+)\s*\([^)]*\)\s*\{', solution):
             name = m.group(1)
@@ -247,8 +264,10 @@ def validate_exercise(
     Layer 3: Compute & Run — compute expected via solution execution,
              then verify solution passes all test cases
     """
+    solution = _strip_export(exercise.solution, language)
+
     # Layer 2: Signature — extract function names from solution
-    func_names = _extract_func_names_from_solution(exercise.solution, language)
+    func_names = _extract_func_names_from_solution(solution, language)
     if not func_names:
         return ValidationResult(
             valid=False,
@@ -267,14 +286,14 @@ def validate_exercise(
     # Layer 3: Compute expected values, then verify with assertion harness
     input_dicts = [{"name": ti.name, "input": ti.input} for ti in exercise.test_inputs]
     try:
-        test_cases = compute_expected(language, exercise.solution, input_dicts)
+        test_cases = compute_expected(language, solution, input_dicts)
     except ValueError as e:
         msg = str(e)
         if "compilation failed" in msg.lower():
             return ValidationResult(valid=False, layer="compile", error=msg)
         return ValidationResult(valid=False, layer="run", error=msg)
 
-    run_result = run_exercise_code(language, exercise.solution, test_cases, label="solution")
+    run_result = run_exercise_code(language, solution, test_cases, label="solution")
 
     if run_result.get("error", "").startswith("Compilation failed"):
         return ValidationResult(

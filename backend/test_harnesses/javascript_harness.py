@@ -9,8 +9,9 @@ function __deepEq__(a, b) {
     for (const k of ak) { if (!__deepEq__(a[k], b[k])) return false; }
     return true;
 }
-function __assert__(cond, msg) {
-    if (!cond) throw new Error(msg || "assertion failed");
+function __check__(actual, expected) {
+    if (!__deepEq__(actual, expected))
+        throw new Error("expected " + JSON.stringify(expected) + ", got " + JSON.stringify(actual));
 }
 function __test__(name, fn) {
     try { fn(); __results__.push({name, passed: true}); }

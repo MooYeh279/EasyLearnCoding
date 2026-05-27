@@ -7,14 +7,13 @@ C_HARNESS = """\
 #define _JSON_BUF_SIZE 8192
 #define _EPS 1e-4
 
-#define __TEST__(name, expr) do { \\
+#define __TEST__(name, expr, expected_str) do { \\
     if (!_first_test) strncat(_json_buf, ",", _JSON_BUF_SIZE - strlen(_json_buf) - 1); \\
     { char _entry[512]; \\
-      snprintf(_entry, sizeof(_entry), \\
-        (expr) \\
-            ? "{\\"name\\":\\"%s\\",\\"passed\\":true}" \\
-            : "{\\"name\\":\\"%s\\",\\"passed\\":false,\\"error\\":\\"assertion failed\\"}", \\
-        name); \\
+      if (expr) snprintf(_entry, sizeof(_entry), \\
+          "{\\"name\\":\\"%s\\",\\"passed\\":true}", name); \\
+      else snprintf(_entry, sizeof(_entry), \\
+          "{\\"name\\":\\"%s\\",\\"passed\\":false,\\"error\\":\\"expected %s\\"}", name, expected_str); \\
       strncat(_json_buf, _entry, _JSON_BUF_SIZE - strlen(_json_buf) - 1); } \\
     _first_test = 0; \\
 } while(0)

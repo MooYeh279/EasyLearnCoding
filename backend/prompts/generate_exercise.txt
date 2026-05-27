@@ -7,7 +7,7 @@ Section: {section_title}
 Target knowledge: {knowledge_description}
 
 {platform_info}
-
+{language_note}
 Content language: {content_language}
 
 ALL user-facing text MUST be in {content_language}: question, test_inputs[].name, hints, knowledge_tags.

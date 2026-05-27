@@ -1,7 +1,7 @@
 """Tests for AI service exercise generation — prompt formatting and JSON parsing."""
 import json
 import pytest
-from services.ai_service import _load_prompt, get_platform_info, parse_exercise_output
+from services.ai_service import _load_prompt, get_platform_info, _get_language_note, parse_exercise_output
 
 
 def test_prompt_formats_all_languages():
@@ -14,6 +14,7 @@ def test_prompt_formats_all_languages():
             knowledge_description="test",
             content_language="Chinese",
             platform_info=get_platform_info(),
+            language_note=_get_language_note(lang),
         )
         assert "test_inputs" in prompt
 
