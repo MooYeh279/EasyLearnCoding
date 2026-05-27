@@ -10,7 +10,6 @@ from logger import get_logger
 from models import Exercise, Section, Topic, Lesson
 from services.ai_service import generate_exercise_async
 from services.exercise_service import validate_exercise, run_exercise_code
-from services.template_generator import generate_template_from_solution
 
 logger = get_logger("exercises")
 router = APIRouter(prefix="/api", tags=["exercises"])
@@ -73,7 +72,6 @@ def _ex_to_response(ex: Exercise) -> dict:
         "section_id": ex.section_id,
         "type": ex.type,
         "language": ex.language or "python",
-        "declarations": ex.declarations or "",
         "regenerating": ex.id in _regenerating,
     }
 
@@ -87,7 +85,7 @@ async def _generate_validated_exercise(
 ) -> tuple:
     """Generate and validate an exercise with multi-layer retry.
 
-    Returns (exercise: RawExerciseOutput, validation: ValidationResult, template: str).
+    Returns (exercise: RawExerciseOutput, validation: ValidationResult, test_cases: list[dict]).
     Raises HTTPException on exhaustion.
     """
     validation = None
@@ -125,8 +123,10 @@ async def _generate_validated_exercise(
         validation = validate_exercise(language_name, exercise)
 
         if validation.valid:
-            template = generate_template_from_solution(exercise.solution, language_name)
-            return exercise, validation, template
+            from services.exercise_service import compute_expected
+            input_dicts = [{"name": ti.name, "input": ti.input} for ti in exercise.test_inputs]
+            test_cases = compute_expected(language_name, exercise.solution, input_dicts)
+            return exercise, validation, test_cases
 
         logger.warning(
             "Exercise validation FAILED at layer %s (attempt %d/%d): %s",
@@ -161,23 +161,22 @@ async def generate_section_exercise(section_id: int, db: Session = Depends(get_d
     lessons = db.query(Lesson).filter(Lesson.section_id == section_id).all()
     knowledge_description = _build_knowledge_summary(lessons)
 
-    exercise, validation, template = await _generate_validated_exercise(
+    exercise, validation, test_cases = await _generate_validated_exercise(
         language_name=language_name,
         topic_title=topic.title,
         section_title=section.title,
         knowledge_description=knowledge_description,
     )
 
-    test_cases_data = [tc.model_dump() for tc in exercise.test_cases]
     db_exercise = Exercise(
         section_id=section_id,
         type="section",
         language=language_name,
         question=exercise.question,
-        template=template,
-        test_cases=json.dumps(test_cases_data, ensure_ascii=False),
+        template="",
+        test_cases=json.dumps(test_cases, ensure_ascii=False),
         solution=exercise.solution,
-        declarations=exercise.declarations,
+        declarations="",
         knowledge_tags=exercise.knowledge_tags,
         hints=exercise.hints,
     )
@@ -199,23 +198,22 @@ async def generate_topic_exercise(topic_id: int, db: Session = Depends(get_db)):
     lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
     knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=500)
 
-    exercise, validation, template = await _generate_validated_exercise(
+    exercise, validation, test_cases = await _generate_validated_exercise(
         language_name=language_name,
         topic_title=topic.title,
         section_title=f"{topic.title} (Comprehensive)",
         knowledge_description=knowledge_description,
     )
 
-    test_cases_data = [tc.model_dump() for tc in exercise.test_cases]
     db_exercise = Exercise(
         type="topic",
         topic_id=topic_id,
         language=language_name,
         question=exercise.question,
-        template=template,
-        test_cases=json.dumps(test_cases_data, ensure_ascii=False),
+        template="",
+        test_cases=json.dumps(test_cases, ensure_ascii=False),
         solution=exercise.solution,
-        declarations=exercise.declarations,
+        declarations="",
         knowledge_tags=exercise.knowledge_tags,
         hints=exercise.hints,
     )
@@ -280,7 +278,7 @@ async def regenerate_exercise(exercise_id: int, db: Session = Depends(get_db)):
                 lessons = db.query(Lesson).filter(Lesson.section_id.in_(section_ids)).all() if section_ids else []
                 knowledge_description = _build_knowledge_summary(lessons, max_chars_per_lesson=500)
 
-        exercise, validation, template = await _generate_validated_exercise(
+        exercise, validation, test_cases = await _generate_validated_exercise(
             language_name=language_name,
             topic_title=topic_title,
             section_title=section_title,
@@ -288,12 +286,11 @@ async def regenerate_exercise(exercise_id: int, db: Session = Depends(get_db)):
         )
 
         # Update the existing row in-place (keeps the same ID)
-        test_cases_data = [tc.model_dump() for tc in exercise.test_cases]
         existing.question = exercise.question
-        existing.template = template
-        existing.test_cases = json.dumps(test_cases_data, ensure_ascii=False)
+        existing.template = ""
+        existing.test_cases = json.dumps(test_cases, ensure_ascii=False)
         existing.solution = exercise.solution
-        existing.declarations = exercise.declarations
+        existing.declarations = ""
         existing.knowledge_tags = exercise.knowledge_tags
         existing.hints = exercise.hints
 
@@ -324,19 +321,11 @@ def run_exercise(exercise_id: int, req: RunExerciseRequest, db: Session = Depend
             detail="Exercise test cases are malformed",
         )
 
-    # Prepend declarations (enum/type/interface/struct) before user code
-    # Avoid duplication: the template (derived from solution) may already include them
-    declarations = exercise.declarations or ""
-    if declarations.strip() and declarations.strip() not in req.code:
-        full_code = f"{declarations}\n\n{req.code}"
-    else:
-        full_code = req.code
-
     # Save user code to template so it persists across page reloads
     exercise.template = req.code
     db.commit()
 
-    return run_exercise_code(exercise.language, full_code, test_cases)
+    return run_exercise_code(exercise.language, req.code, test_cases)
 
 
 @router.get("/sections/{section_id}/exercises")
