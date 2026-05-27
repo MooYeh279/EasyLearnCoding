@@ -163,6 +163,5 @@ export interface Exercise {
   section_id: number | null;
   type: 'section' | 'topic';
   language: string;
-  declarations: string;
   regenerating: boolean;
 }
