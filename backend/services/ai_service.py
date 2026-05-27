@@ -329,8 +329,8 @@ async def generate_exercise_async(
         exercise = parse_exercise_output(result)
         elapsed = time.perf_counter() - start
         logger.info(
-            "Exercise generated: %d test cases (%.2fs)",
-            len(exercise.test_cases), elapsed,
+            "Exercise generated: %d test inputs (%.2fs)",
+            len(exercise.test_inputs), elapsed,
         )
         return exercise
     except Exception:
