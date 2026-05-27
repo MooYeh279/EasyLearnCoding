@@ -1,72 +1,30 @@
-"""Tests for exercise_service — 6-layer validation pipeline."""
-import json
-from services.exercise_schema import (
-    FunctionSignature, TestCaseSpec, RawExerciseOutput, ValidationResult,
-)
-
-
-def test_layer1_structure_valid():
-    from services.exercise_service import validate_exercise
-
-    exercise = RawExerciseOutput(
-        question="Implement the add function",
-        solution="def add(a, b):\n    return a + b",
-        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="basic", input="add(1, 2)", expected="3"),
-        ],
-        hints=["hint"],
-    )
-    result = validate_exercise("python", exercise)
-    assert result.layer != "structure"
+"""Tests for exercise_service — 3-layer validation pipeline."""
+from services.exercise_schema import RawExerciseOutput, TestInput
 
 
 def test_layer2_signature_mismatch():
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
-        question="Implement the add function",
-        solution="def multiply(a, b):\n    return a * b",
-        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="basic", input="add(1, 2)", expected="3"),
-        ],
-        hints=["hint"],
-    )
-    result = validate_exercise("python", exercise)
-    assert result.valid is False
-    assert result.layer == "signature"
-
-
-def test_layer2_question_signature_mismatch():
-    """Function names from signatures must appear in the question text."""
-    from services.exercise_service import validate_exercise
-
-    exercise = RawExerciseOutput(
         question="Implement a Vehicle class with static member count",
         solution="def add(a, b):\n    return a + b",
-        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="basic", input="add(1, 2)", expected="3"),
-        ],
+        test_inputs=[TestInput(name="basic", input="add(1, 2)")],
         hints=["hint"],
     )
     result = validate_exercise("python", exercise)
     assert result.valid is False
     assert result.layer == "signature"
-    assert "question" in result.error.lower() or "add" in result.error
 
 
-def test_layer5_run_passes():
+def test_layer3_run_passes():
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
         question="Implement the add function",
         solution="def add(a, b):\n    return a + b",
-        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="1+2", input="add(1, 2)", expected="3"),
-            TestCaseSpec(name="0+0", input="add(0, 0)", expected="0"),
+        test_inputs=[
+            TestInput(name="1+2", input="add(1, 2)"),
+            TestInput(name="0+0", input="add(0, 0)"),
         ],
         hints=["hint"],
     )
@@ -76,44 +34,77 @@ def test_layer5_run_passes():
     assert result.test_results["all_passed"] is True
 
 
-def test_layer5_run_fails_wrong_solution():
+def test_layer3_run_self_consistency():
+    """Auto-computed expected values make any runnable solution pass."""
     from services.exercise_service import validate_exercise
 
     exercise = RawExerciseOutput(
         question="Implement the add function",
         solution="def add(a, b):\n    return a - b",
-        function_signatures=[FunctionSignature(name="add", params="a, b", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="1+2", input="add(1, 2)", expected="3"),
-        ],
+        test_inputs=[TestInput(name="1+2", input="add(1, 2)")],
         hints=["hint"],
     )
     result = validate_exercise("python", exercise)
-    assert result.valid is False
+    # With compute_expected, the solution is self-consistent: compute
+    # runs add(1,2)->-1, then the run step verifies add(1,2)==-1.
+    assert result.valid is True
     assert result.layer == "run"
+
+
+def test_compute_expected_python():
+    from services.exercise_service import compute_expected
+
+    test_cases = compute_expected("python", "def add(a, b):\n    return a + b", [
+        {"name": "basic", "input": "add(1, 2)"},
+        {"name": "zero", "input": "add(0, 0)"},
+    ])
+    assert len(test_cases) == 2
+    assert test_cases[0]["expected"] == "3"
+    assert test_cases[0]["type"] == "int"
+
+
+def test_run_exercise_code_with_computed():
+    from services.exercise_service import run_exercise_code
+
+    test_cases = [
+        {"name": "basic", "input": "add(1, 2)", "expected": "3", "type": "int"},
+    ]
+    result = run_exercise_code("python", "def add(a, b): return a + b", test_cases)
+    assert result["all_passed"] is True
+
+
+def test_compute_expected_string_type():
+    from services.exercise_service import compute_expected
+
+    test_cases = compute_expected("python",
+        "def greet(n):\n    return f'Hello, {n}'",
+        [{"name": "alice", "input": "greet('Alice')"}],
+    )
+    assert test_cases[0]["type"] == "str"
+    assert "Hello" in test_cases[0]["expected"]
+
+
+def test_compute_expected_bool_type():
+    from services.exercise_service import compute_expected
+
+    test_cases = compute_expected("python",
+        "def is_even(n):\n    return n % 2 == 0",
+        [{"name": "even", "input": "is_even(4)"}],
+    )
+    assert test_cases[0]["type"] == "bool"
+    assert test_cases[0]["expected"] == "True"
 
 
 def test_build_exercise_script_python():
     from services.exercise_service import build_exercise_script
 
-    cases = [TestCaseSpec(name="basic", input="add(1, 2)", expected="3")]
-    script = build_exercise_script(
-        "python", "def add(a, b): return a + b",
-        [tc.model_dump() for tc in cases],
-    )
+    cases = [
+        {"name": "basic", "input": "add(1, 2)", "expected": "3", "type": "int"},
+    ]
+    script = build_exercise_script("python", "def add(a, b): return a + b", cases)
     assert script is not None
     assert "__test__" in script
     assert "__assert__(add(1, 2) == 3)" in script
-
-
-def test_run_exercise_code_python():
-    from services.exercise_service import run_exercise_code
-
-    test_cases = [
-        {"name": "basic", "input": "add(1, 2)", "expected": "3", "is_string": False},
-    ]
-    result = run_exercise_code("python", "def add(a, b): return a + b", test_cases)
-    assert result["all_passed"] is True
 
 
 def test_parse_test_results_success():
@@ -132,53 +123,3 @@ def test_parse_test_results_no_marker():
     result = parse_test_results(output, 50)
     assert result["all_passed"] is False
     assert "No test results found" in result["error"]
-
-
-def test_validate_exercise_with_declarations():
-    from services.exercise_service import validate_exercise
-
-    exercise = RawExerciseOutput(
-        question="Check if the status is active using is_active",
-        solution="def is_active(s):\n    return s == 'active'",
-        function_signatures=[FunctionSignature(name="is_active", params="s", return_type="")],
-        test_cases=[
-            TestCaseSpec(name="active", input="is_active('active')", expected="True"),
-        ],
-        declarations="",
-        hints=["hint"],
-    )
-    result = validate_exercise("python", exercise)
-    assert result.valid is True
-
-
-def test_build_exercise_script_bash():
-    from services.exercise_service import build_exercise_script
-
-    cases = [TestCaseSpec(name="basic", input="add 1 2", expected="3")]
-    script = build_exercise_script(
-        "bash", "add() { echo $(( $1 + $2 )); }",
-        [tc.model_dump() for tc in cases],
-    )
-    assert script is not None
-    assert "__test__" in script
-    assert "add 1 2" in script
-
-
-def test_run_exercise_code_bash():
-    from services.exercise_service import run_exercise_code
-
-    test_cases = [
-        {"name": "basic", "input": "add 1 2", "expected": "3", "is_string": False},
-    ]
-    result = run_exercise_code("bash", "add() { echo $(( $1 + $2 )); }", test_cases)
-    assert result["all_passed"] is True
-
-
-def test_run_exercise_code_bash_string_output():
-    from services.exercise_service import run_exercise_code
-
-    test_cases = [
-        {"name": "greet", "input": "greet Alice", "expected": "hello Alice", "is_string": True},
-    ]
-    result = run_exercise_code("bash", 'greet() { echo "hello $1"; }', test_cases)
-    assert result["all_passed"] is True

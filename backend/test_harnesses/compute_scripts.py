@@ -14,7 +14,7 @@ def build_python_compute(solution: str, test_inputs: list[dict]) -> str:
         name = _escape_json(ti["name"])
         expr = ti["input"]
         input_lines.append(
-            f'    _results.append({{"name": "{name}", '
+            f'_results.append({{"name": "{name}", '
             f'"value": repr({expr}), '
             f'"type": __type__({expr})}})'
         )
@@ -29,7 +29,7 @@ def build_javascript_compute(solution: str, test_inputs: list[dict]) -> str:
         name = _escape_json(ti["name"])
         expr = ti["input"]
         input_lines.append(
-            f'  results.push({{name: "{name}", ...__fmt__({expr})}});'
+            f'  results.push({{name: "{name}", value: String(__val__({expr})), type: String(__type__({expr}))}});'
         )
     return _JS_COMPUTE.format(solution=solution, test_inputs="\n".join(input_lines))
 
@@ -96,12 +96,16 @@ print("__RESULTS__" + json.dumps(_results, ensure_ascii=False))
 _JS_COMPUTE = """\
 {solution}
 
-function __fmt__(v) {{
+function __val__(v) {{
+  return (v === null || v === undefined) ? 'null' : String(v);
+}}
+
+function __type__(v) {{
   const t = typeof v;
-  if (t === 'string')  return {{v: v, t: 'str'}};
-  if (t === 'boolean') return {{v: String(v), t: 'bool'}};
-  if (t === 'number')  return {{v: String(v), t: Number.isInteger(v) ? 'int' : 'float'}};
-  return {{v: String(v), t: 'str'}};
+  if (t === 'string')  return 'str';
+  if (t === 'boolean') return 'bool';
+  if (t === 'number')  return Number.isInteger(v) ? 'int' : 'float';
+  return 'str';
 }}
 
 const results = [];
@@ -146,6 +150,7 @@ _BASH_COMPUTE = """\
 
 _results='['
 {test_inputs}
+_results=${{_results%,}}
 _results+=']'
 echo "__RESULTS__$_results"
 """
@@ -188,6 +193,8 @@ def _c_format_info(return_type: str) -> tuple[str, str]:
         return '%f', 'float'
     if 'char' in rt:
         return '%c', 'str'
+    if 'string' in rt:
+        return '%s', 'str'
     if 'bool' in rt.lower():
         return '%d', 'bool'
     return '%d', 'int'

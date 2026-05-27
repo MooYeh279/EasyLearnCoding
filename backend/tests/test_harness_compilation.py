@@ -4,12 +4,12 @@ import os
 import subprocess
 import tempfile
 
-from services.exercise_schema import TestCaseSpec
+from services.exercise_schema import TestCase
 from services.assertion_generator import generate_assertions
 from test_harnesses import BUILDERS
 
 
-def _compile_and_run(language: str, solution: str, test_cases: list[TestCaseSpec]) -> dict:
+def _compile_and_run(language: str, solution: str, test_cases: list[TestCase]) -> dict:
     """Build script, compile, run, and return parsed results."""
     assertions = generate_assertions(language, test_cases)
     script = BUILDERS[language](solution, assertions)
@@ -61,8 +61,8 @@ class TestCppHarness:
     def test_basic_int_comparison(self):
         solution = "int add(int a, int b) { return a + b; }"
         cases = [
-            TestCaseSpec(name="1+2", input="add(1, 2)", expected="3"),
-            TestCaseSpec(name="0+0", input="add(0, 0)", expected="0"),
+            TestCase(name="1+2", input="add(1, 2)", expected="3"),
+            TestCase(name="0+0", input="add(0, 0)", expected="0"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -71,7 +71,7 @@ class TestCppHarness:
         """C++ string assertions use == (not strcmp)."""
         solution = 'std::string greet(std::string name) { return "Hello, " + name; }'
         cases = [
-            TestCaseSpec(name="alice", input='greet("Alice")', expected='"Hello, Alice"', is_string=True),
+            TestCase(name="alice", input='greet("Alice")', expected='"Hello, Alice"', type="str"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -79,8 +79,8 @@ class TestCppHarness:
     def test_bool_comparison(self):
         solution = "bool isEven(int n) { return n % 2 == 0; }"
         cases = [
-            TestCaseSpec(name="even", input="isEven(4)", expected="true"),
-            TestCaseSpec(name="odd", input="isEven(3)", expected="false"),
+            TestCase(name="even", input="isEven(4)", expected="true"),
+            TestCase(name="odd", input="isEven(3)", expected="false"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -88,7 +88,7 @@ class TestCppHarness:
     def test_negative_values(self):
         solution = "int negate(int n) { return -n; }"
         cases = [
-            TestCaseSpec(name="neg", input="negate(5)", expected="-5"),
+            TestCase(name="neg", input="negate(5)", expected="-5"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -97,7 +97,7 @@ class TestCppHarness:
         """C++ array argument via compound literal — self-contained input."""
         solution = "int sumArray(int* arr, int size) { int s=0; for(int i=0;i<size;i++) s+=arr[i]; return s; }"
         cases = [
-            TestCaseSpec(name="sum", input="sumArray((int[]){1, 2, 3, 4, 5}, 5)", expected="15"),
+            TestCase(name="sum", input="sumArray((int[]){1, 2, 3, 4, 5}, 5)", expected="15"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -106,7 +106,7 @@ class TestCppHarness:
         """C++ 2D array argument via compound literal."""
         solution = "int sumMatrix(int m[][4], int rows) { int s=0; for(int i=0;i<rows;i++) for(int j=0;j<4;j++) s+=m[i][j]; return s; }"
         cases = [
-            TestCaseSpec(name="2x4", input="sumMatrix((int[][4]){{1,2,3,4},{5,6,7,8}}, 2)", expected="36"),
+            TestCase(name="2x4", input="sumMatrix((int[][4]){{1,2,3,4},{5,6,7,8}}, 2)", expected="36"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is True
@@ -114,7 +114,7 @@ class TestCppHarness:
     def test_wrong_solution_fails(self):
         solution = "int add(int a, int b) { return a - b; }"
         cases = [
-            TestCaseSpec(name="1+2", input="add(1, 2)", expected="3"),
+            TestCase(name="1+2", input="add(1, 2)", expected="3"),
         ]
         result = _compile_and_run("cpp", solution, cases)
         assert result.get("all_passed") is False
@@ -124,7 +124,7 @@ class TestCHarness:
     def test_basic_int_comparison(self):
         solution = "int add(int a, int b) { return a + b; }"
         cases = [
-            TestCaseSpec(name="1+2", input="add(1, 2)", expected="3"),
+            TestCase(name="1+2", input="add(1, 2)", expected="3"),
         ]
         result = _compile_and_run("c", solution, cases)
         assert result.get("all_passed") is True
@@ -133,7 +133,7 @@ class TestCHarness:
         """C string assertions use strcmp."""
         solution = 'const char* greet() { return "hello"; }'
         cases = [
-            TestCaseSpec(name="hello", input="greet()", expected='"hello"', is_string=True),
+            TestCase(name="hello", input="greet()", expected='"hello"', type="str"),
         ]
         result = _compile_and_run("c", solution, cases)
         assert result.get("all_passed") is True
@@ -142,7 +142,7 @@ class TestCHarness:
         """C array argument via compound literal — self-contained input."""
         solution = "int sumArray(int* arr, int size) { int s=0; for(int i=0;i<size;i++) s+=arr[i]; return s; }"
         cases = [
-            TestCaseSpec(name="sum", input="sumArray((int[]){1, 2, 3, 4, 5}, 5)", expected="15"),
+            TestCase(name="sum", input="sumArray((int[]){1, 2, 3, 4, 5}, 5)", expected="15"),
         ]
         result = _compile_and_run("c", solution, cases)
         assert result.get("all_passed") is True
@@ -151,7 +151,7 @@ class TestCHarness:
         """C 2D array argument via compound literal."""
         solution = "int sumMatrix(int m[][4], int rows) { int s=0; for(int i=0;i<rows;i++) for(int j=0;j<4;j++) s+=m[i][j]; return s; }"
         cases = [
-            TestCaseSpec(name="2x4", input="sumMatrix((int[][4]){{1,2,3,4},{5,6,7,8}}, 2)", expected="36"),
+            TestCase(name="2x4", input="sumMatrix((int[][4]){{1,2,3,4},{5,6,7,8}}, 2)", expected="36"),
         ]
         result = _compile_and_run("c", solution, cases)
         assert result.get("all_passed") is True
