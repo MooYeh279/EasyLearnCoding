@@ -10,7 +10,7 @@ Target knowledge: {knowledge_description}
 
 Content language: {content_language}
 
-ALL user-facing text MUST be in {content_language}: question, test_cases[].name, hints, knowledge_tags.
+ALL user-facing text MUST be in {content_language}: question, test_inputs[].name, hints, knowledge_tags.
 Code identifiers and language keywords remain in English.
 
 ---- THE SINGLE MOST IMPORTANT RULE ----
@@ -21,55 +21,44 @@ Pick ONE clear concept from the target knowledge. Use the SAME function/class na
 ---- WORKFLOW (follow EXACTLY in this order) ----
 
 STEP 1 — Write the SOLUTION.
-  Write ONLY the functions/classes/methods the student must implement.
+  Write the COMPLETE correct code in {language_name}. Include ALL type definitions,
+  helper declarations, and necessary imports. The code must be correct and compilable/runnable.
   Do NOT include program entry points (main function, test harness, driver code).
-  The code must be correct, compilable {language_name}. This is the source of truth.
-  Mentally verify it with sample inputs to confirm it works.
+  The student will implement this same code on their own.
 
-STEP 2 — Extract DECLARATIONS (optional).
-  If your solution defines enum / type / interface / struct that the student
-  must see to understand the exercise, list them here.  The starter template
-  is auto-generated from your solution, so declarations are usually included
-  there automatically.  Only fill this field if you need to ensure certain
-  type definitions are available at runtime even if the student deletes them.
-  If not needed, leave this field empty.
-
-STEP 3 — Describe TEST_CASES.
+STEP 2 — Design TEST_INPUTS.
   For each test case, provide:
     - name: a short descriptive name (in {content_language})
-    - input: the function call expression, e.g. add(1, 2)
-    - expected: the expected return value as a {language_name} literal
+    - input: a SELF-CONTAINED function call expression, e.g. add(1, 2)
+
+  CRITICAL CONSTRAINT — every input expression MUST evaluate to one of:
+    - int (integer)
+    - float (floating-point number)
+    - string
+    - bool (true/false)
+
+  For complex types (struct, class, array, vector), use member access to reach
+  a basic type: point.x, vec.size(), arr[0], person.name.
+
   Rules for "input":
     - MUST be a self-contained expression — no references to undeclared variables.
       All data must be embedded inline (e.g. [1,2,3] or (int[]){{1,2,3}}).
-  Rules for "expected":
-    - Numbers: just the number → "3"
-    - Strings: include the quotes → '"hello"'
-    - Booleans: "True" / "False" for Python, "true" / "false" for JS/TS/C/C++
-    - Lists: "[1, 2, 3]"
-  If the return value is a string, set is_string to true.
+
   Produce 3-5 cases: basic usage, edge cases.
 
-STEP 4 — List FUNCTION_SIGNATURES.
-  For each function/class the student must implement, provide:
-    - name: function name
-    - params: parameter list as it appears in the definition
-      e.g. "a, b" (Python) or "int a, int b" (C/C++) or "a: number, b: number" (TypeScript)
-    - return_type: return type annotation
-      e.g. "" (Python/Bash) or ": number" (TypeScript) or "int" (C/C++)
-      For void functions use "void".
-
-STEP 5 — Write QUESTION and HINTS.
-  Question: describe the problem in {content_language}. Include function names and 1-2 examples.
-  Hints: 2-3 constructive hints in {content_language}.
+STEP 3 — Write QUESTION and HINTS.
+  Question: describe the problem in {content_language}. Include:
+  - What function(s)/class(es) the student needs to implement
+  - The function signatures (names, parameters, return types)
+  - 1-2 examples showing input and expected output
+  Hints: 2-3 constructive hints in {content_language} to guide the student.
 
 ---- FINAL VERIFICATION ----
 1. Solution is valid {language_name} code that actually runs
-2. For each test case: mentally trace the solution → return value matches expected
-3. function_signatures match the function names in solution
+2. Every test_input expression is self-contained (no undeclared variables)
+3. Every test_input expression evaluates to int, float, string, or bool
 4. All code is in {language_name} — NOT a different language
-5. Every "input" expression is self-contained — no undeclared variable references
-6. If the function signature references enums/types/interfaces, they are in "declarations"
+5. Function/class names in question match those in solution
 
 If ANY check fails → go back and fix it NOW.
 
@@ -80,12 +69,8 @@ Output ONLY valid JSON (no markdown wrapping, no code fences):
 {{
   "question": "...",
   "solution": "...",
-  "declarations": "enum Status {{ Active, Inactive }}",
-  "function_signatures": [
-    {{"name": "functionName", "params": "...", "return_type": "..."}}
-  ],
-  "test_cases": [
-    {{"name": "Descriptive name", "input": "functionName(arg1, arg2)", "expected": "value", "is_string": false}}
+  "test_inputs": [
+    {{"name": "Descriptive name", "input": "functionName(arg1, arg2)"}}
   ],
   "knowledge_tags": ["tag1", "tag2"],
   "hints": ["hint1", "hint2"]
