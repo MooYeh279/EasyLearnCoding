@@ -10,7 +10,11 @@ export function parseCells(raw: string): NotebookCell[] {
 }
 
 export function generateId(): string {
-  return crypto.randomUUID().slice(0, 8);
+  try {
+    return crypto.randomUUID().slice(0, 8);
+  } catch {
+    return Math.random().toString(36).slice(2, 10);
+  }
 }
 
 export function cellsToMarkdown(cells: NotebookCell[]): string {
