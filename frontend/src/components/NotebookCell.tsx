@@ -105,7 +105,7 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
     }
   }, [isMd, editText, cell.id, onChange]);
 
-  const doRun = useCallback(async (codeToRun: string) => {
+  const doRun = useCallback(async (codeToRun: string, language: string) => {
     setRunning(true);
     const output: CellOutput = { stdout: '', stderr: '', exit_code: 0, duration_ms: 0 };
     onChange(cell.id, { output } as any);
@@ -114,7 +114,7 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
     abortRef.current = ctrl;
 
     try {
-      await api.runCodeStream(codeToRun, cell.language, (event, data) => {
+      await api.runCodeStream(codeToRun, language, (event, data) => {
         if (event === 'stdout') {
           output.stdout += data.text;
           onChange(cell.id, { output: { ...output } } as any);
@@ -135,7 +135,7 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
       setRunning(false);
       abortRef.current = null;
     }
-  }, [cell.language, cell.id, onChange, t]);
+  }, [cell.id, onChange, t]);
 
   const handleRun = useCallback(() => {
     if (cell.type !== 'code' || cell.language === 'txt') return;
@@ -145,11 +145,11 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
       setEditText(code);
       setEditing(false);
       onChange(cell.id, { code });
-      doRun(code);
+      doRun(code, cell.language);
     } else {
-      doRun(cell.code);
+      doRun(cell.code, cell.language);
     }
-  }, [editing, cell.type, cell.language, cell.code, cell.id, onChange, doRun]);
+  }, [editing, cell.type, cell.id, cell.type === 'code' ? cell.code : '', cell.type === 'code' ? cell.language : '', onChange, doRun]);
 
   const handleStop = () => {
     abortRef.current?.abort();
@@ -166,13 +166,14 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
   // Keep refs updated so Monaco keybindings always call latest versions
   saveEditRef.current = saveEdit;
   saveAndRunRef.current = () => {
-    if (cell.type !== 'code' || cell.language === 'txt') return;
+    if (cell.type !== 'code') return;
+    if (cell.language === 'txt') return;
     const code = editorRef.current?.getValue?.();
     if (code == null) return;
     isEditingRef.current = false;
     setEditing(false);
     onChange(cell.id, { code });
-    doRun(code);
+    doRun(code, cell.language);
   };
 
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
