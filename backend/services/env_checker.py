@@ -18,15 +18,15 @@ COMMANDS: dict[str, list[tuple[list[str], str]]] = {
 }
 
 VERSION_PATTERNS: dict[str, str] = {
-    "python": r"Python (\d+\.\d+\.\d+)",
-    "node":   r"v(\d+\.\d+\.\d+)",
-    "tsx":    r"v?(\d+\.\d+\.\d+)",
-    "tsc":    r"[Vv]ersion\s+(\d+\.\d+\.\d+)",
-    "pip":    r"(\d+\.\d+\.\d+)",
-    "npm":    r"(\d+\.\d+\.\d+)",
-    "bash":   r"(\d+\.\d+\.\d+)",
-    "gcc":    r"(\d+\.\d+\.\d+)",
-    "gpp":    r"(\d+\.\d+\.\d+)",
+    "python": r"Python (\d+\.\d+(?:\.\d+)?)",
+    "node":   r"v(\d+\.\d+(?:\.\d+)?)",
+    "tsx":    r"v?(\d+\.\d+(?:\.\d+)?)",
+    "tsc":    r"[Vv]ersion\s+(\d+\.\d+(?:\.\d+)?)",
+    "pip":    r"(\d+\.\d+(?:\.\d+)?)",
+    "npm":    r"(\d+\.\d+(?:\.\d+)?)",
+    "bash":   r"(\d+\.\d+(?:\.\d+)?)",
+    "gcc":    r"(\d+\.\d+(?:\.\d+)?)",
+    "gpp":    r"(\d+\.\d+(?:\.\d+)?)",
 }
 
 # OS-adaptive install commands
@@ -151,7 +151,7 @@ def check_environment(language: str, force: bool = False) -> LanguageEnvironment
                 "cannot find", "error", "cannot execute",
             ))
             if result.returncode == 0 and not is_stderr_error:
-                pattern = VERSION_PATTERNS.get(comp_name, r"(\d+\.\d+\.\d+)")
+                pattern = VERSION_PATTERNS.get(comp_name, r"(\d+\.\d+(?:\.\d+)?)")
                 m = re.search(pattern, output)
                 if m:
                     available = True
