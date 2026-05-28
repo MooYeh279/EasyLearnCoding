@@ -46,11 +46,11 @@ export default function TestRunner({ exerciseId, template, language, running, te
   }, [exerciseId, code, onRun]);
 
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
-    // Ctrl+Enter: run tests (with save)
+    // Shift+Enter: run tests (with save)
     editor.addAction({
       id: 'run-tests',
       label: 'Run Tests',
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Enter],
       run: () => {
         if (exerciseId) api.saveExerciseCode(exerciseId, editor.getValue()).catch(() => {});
         onRun(editor.getValue());
@@ -148,7 +148,7 @@ export default function TestRunner({ exerciseId, template, language, running, te
             {running ? t('exercise.running') : t('exercise.runTests')}
           </Button>
         </div>
-        <span style={{ fontSize: 12, color: C.textMuted }}>Ctrl+Enter</span>
+        <span style={{ fontSize: 12, color: C.textMuted }}>Shift+Enter</span>
       </div>
 
       {/* Test results panel */}

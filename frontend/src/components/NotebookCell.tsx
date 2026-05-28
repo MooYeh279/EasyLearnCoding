@@ -59,10 +59,11 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
   const editorRef = useRef<any>(null);
   const abortRef = useRef<AbortController | null>(null);
   const preloadedRef = useRef(false);
+  const isEditingRef = useRef(false);
 
   // Refs to hold latest callbacks so Monaco keybindings don't go stale
   const saveEditRef = useRef<() => void>(() => {});
-  const handleRunRef = useRef<() => void>(() => {});
+  const saveAndRunRef = useRef<() => void>(() => {});
 
   const isMd = cell.type === 'markdown';
   const isTxt = cell.type === 'code' && cell.language === 'txt';
@@ -86,12 +87,15 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
   };
 
   const startEdit = () => {
+    isEditingRef.current = true;
     setEditText(isMd ? cell.content : cell.code);
     setEditing(true);
     onEditStart?.(cell.id);
   };
 
   const saveEdit = useCallback(() => {
+    if (!isEditingRef.current) return;
+    isEditingRef.current = false;
     setEditing(false);
     if (isMd) {
       onChange(cell.id, { content: editText });
@@ -101,10 +105,7 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
     }
   }, [isMd, editText, cell.id, onChange]);
 
-  const handleRun = useCallback(async () => {
-    if (cell.type !== 'code' || cell.language === 'txt') return;
-    if (editing) { setEditText(editorRef.current?.getValue?.() ?? editText); saveEdit(); }
-    const codeToRun = editing ? (editorRef.current?.getValue?.() ?? cell.code) : cell.code;
+  const doRun = useCallback(async (codeToRun: string) => {
     setRunning(true);
     const output: CellOutput = { stdout: '', stderr: '', exit_code: 0, duration_ms: 0 };
     onChange(cell.id, { output } as any);
@@ -134,7 +135,21 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
       setRunning(false);
       abortRef.current = null;
     }
-  }, [editing, editText, cell.type, cell.id, cell.type === 'code' ? cell.code : '', cell.type === 'code' ? cell.language : '', onChange, saveEdit, t]);
+  }, [cell.language, cell.id, onChange, t]);
+
+  const handleRun = useCallback(() => {
+    if (cell.type !== 'code' || cell.language === 'txt') return;
+    if (editing) {
+      const code = editorRef.current?.getValue?.() ?? cell.code;
+      isEditingRef.current = false;
+      setEditText(code);
+      setEditing(false);
+      onChange(cell.id, { code });
+      doRun(code);
+    } else {
+      doRun(cell.code);
+    }
+  }, [editing, cell.type, cell.language, cell.code, cell.id, onChange, doRun]);
 
   const handleStop = () => {
     abortRef.current?.abort();
@@ -150,7 +165,15 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
 
   // Keep refs updated so Monaco keybindings always call latest versions
   saveEditRef.current = saveEdit;
-  handleRunRef.current = handleRun;
+  saveAndRunRef.current = () => {
+    if (cell.type !== 'code' || cell.language === 'txt') return;
+    const code = editorRef.current?.getValue?.();
+    if (code == null) return;
+    isEditingRef.current = false;
+    setEditing(false);
+    onChange(cell.id, { code });
+    doRun(code);
+  };
 
   const handleEditorMount = useCallback((editor: any, monaco: any) => {
     editorRef.current = editor;
@@ -158,8 +181,8 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
     editor.addAction({
       id: 'save-and-run',
       label: 'Save and Run',
-      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-      run: () => { saveEditRef.current(); handleRunRef.current(); },
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+      run: () => saveAndRunRef.current(),
     });
     editor.addAction({
       id: 'save-edit',
@@ -267,7 +290,7 @@ const NotebookCellComp = memo(function NotebookCellComp({ cell, index, total, on
             </Tooltip>
           )}
           {canRun && !running && (
-            <Tooltip title="Run (Ctrl+Enter)">
+            <Tooltip title="Run (Shift+Enter)">
               <Button
                 type="text" size="small"
                 icon={<PlayCircleOutlined style={{ color: C.primary, fontSize: 14 }} />}
